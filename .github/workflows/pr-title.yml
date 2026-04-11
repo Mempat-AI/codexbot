@@ -1,0 +1,27 @@
+name: PR Title
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate pull request title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "PR title: $PR_TITLE"
+          PATTERN='^(feat|fix|docs|refactor|test|chore|ci|build|perf|revert)(\([a-z0-9._/-]+\))?: .{8,}$'
+          if [[ "$PR_TITLE" =~ $PATTERN ]]; then
+            exit 0
+          fi
+          echo "PR title must match: type(scope): summary"
+          echo "Allowed types: feat, fix, docs, refactor, test, chore, ci, build, perf, revert"
+          exit 1

@@ -1,0 +1,62 @@
+{
+  "name": "codex-anywhere",
+  "private": false,
+  "version": "0.1.0",
+  "description": "Telegram-native Codex client for background use anywhere",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mempat-AI/codex-anywhere.git"
+  },
+  "homepage": "https://github.com/Mempat-AI/codex-anywhere#readme",
+  "bugs": {
+    "url": "https://github.com/Mempat-AI/codex-anywhere/issues"
+  },
+  "keywords": [
+    "codex",
+    "telegram",
+    "cli",
+    "developer-tools",
+    "automation",
+    "oh-my-codex"
+  ],
+  "bin": {
+    "codex-anywhere": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CONTRIBUTING.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "connect": "tsx src/cli.ts connect",
+    "start": "tsx src/cli.ts connect",
+    "service:install": "tsx src/cli.ts install-service",
+    "service:start": "tsx src/cli.ts start-service",
+    "service:stop": "tsx src/cli.ts stop-service",
+    "service:status": "tsx src/cli.ts service-status",
+    "service:uninstall": "tsx src/cli.ts uninstall-service",
+    "start:dist": "node dist/cli.js connect",
+    "service:install:dist": "node dist/cli.js install-service",
+    "service:start:dist": "node dist/cli.js start-service",
+    "service:stop:dist": "node dist/cli.js stop-service",
+    "service:status:dist": "node dist/cli.js service-status",
+    "service:uninstall:dist": "node dist/cli.js uninstall-service",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "pnpm run typecheck",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "test:real-backend": "CODEX_ANYWHERE_REAL_BACKEND=1 node --test --import tsx tests/realBackend.test.ts",
+    "prepack": "pnpm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "packageManager": "pnpm@10.29.3+sha512.498e1fb4cca5aa06c1dcf2611e6fafc50972ffe7189998c409e90de74566444298ffe43e6cd2acdc775ba1aa7cc5e092a8b7054c811ba8c5770f84693d33d2dc"
+}
