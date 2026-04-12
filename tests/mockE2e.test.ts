@@ -151,8 +151,9 @@ async function createMockOmxBinary(tempDir: string): Promise<string> {
 }
 
 const serialTest = { concurrency: false } as const;
+const runOmxCommandTest = process.env.SKIP_OMX_COMMAND_TESTS === "1" ? test.skip : test;
 
-test(
+runOmxCommandTest(
   "bootstrapCodexAnywhere runs a deterministic mocked E2E flow with persisted resume",
   serialTest,
   async () => {

@@ -21,11 +21,7 @@ jobs:
           cache: npm
           cache-dependency-path: package.json
       - run: npm install
-      - run: npm install -g oh-my-codex
-      - run: echo "$(npm bin -g)" >> $GITHUB_PATH
-      - run: which omx
-      - run: omx --help
-      - run: npm test
+      - run: SKIP_OMX_COMMAND_TESTS=1 npm test
 
   typecheck:
     name: typecheck

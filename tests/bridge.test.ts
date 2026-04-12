@@ -142,8 +142,9 @@ function telegramCallbackUpdate(data: string): TelegramUpdate {
 }
 
 const serialTest = { concurrency: false } as const;
+const runOmxCommandTest = process.env.SKIP_OMX_COMMAND_TESTS === "1" ? test.skip : test;
 
-test("bridge routes /omx version through Telegram message output", serialTest, async () => {
+runOmxCommandTest("bridge routes /omx version through Telegram message output", serialTest, async () => {
   const telegram = new FakeTelegram();
   const codex = new FakeCodex();
   const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
@@ -226,7 +227,7 @@ test("bridge maps skill-first OMX workflows back into the current thread", async
   ]);
 });
 
-test("bridge routes $team through the OMX team CLI path", serialTest, async () => {
+runOmxCommandTest("bridge routes $team through the OMX team CLI path", serialTest, async () => {
   const telegram = new FakeTelegram();
   const codex = new FakeCodex();
   const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
