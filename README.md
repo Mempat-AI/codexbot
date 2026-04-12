@@ -65,6 +65,7 @@ codex-anywhere install-service
 ```
 
 This registers a LaunchAgent (macOS) so the bot starts at login and keeps running when the terminal closes.
+On Linux, it installs a user-level `systemd` service under `~/.config/systemd/user` and enables it immediately.
 
 ### 5. Open Telegram and send `/start`
 
@@ -165,7 +166,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution rules.
 - `codex` must be installed and authenticated before setup
 - Config and state live under the user config directory or `CODEX_ANYWHERE_HOME`
 - `/sh` is explicit and confirmation-gated by design
-- Linux service integration is a placeholder — only macOS LaunchAgent is implemented today
+- Background service install supports macOS LaunchAgent and Linux user-level `systemd`
 
 ---
 

@@ -20,7 +20,7 @@ The repo supports two execution surfaces:
 - source mode for local development: `npm run connect` and `npm run service:*`
 - built mode for publishability checks: `node dist/cli.js ...` after `npm run build`
 
-For macOS background-service work, verify the LaunchAgent commands from the repo:
+For background-service work, verify the service-management commands from the repo:
 
 ```bash
 npm run service:status
