@@ -150,7 +150,12 @@ async function createMockOmxBinary(tempDir: string): Promise<string> {
   return binDir;
 }
 
-test("bootstrapCodexAnywhere runs a deterministic mocked E2E flow with persisted resume", async () => {
+const serialTest = { concurrency: false } as const;
+
+test(
+  "bootstrapCodexAnywhere runs a deterministic mocked E2E flow with persisted resume",
+  serialTest,
+  async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-anywhere-mock-e2e-"));
   const configPath = path.join(tempDir, "config.json");
   const statePath = path.join(tempDir, "state.json");
@@ -258,7 +263,8 @@ test("bootstrapCodexAnywhere runs a deterministic mocked E2E flow with persisted
   } finally {
     process.env.PATH = originalPath;
   }
-});
+},
+);
 
 test("bootstrapCodexAnywhere keeps persisted state intact after a deterministic preflight failure", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-anywhere-mock-e2e-fail-"));

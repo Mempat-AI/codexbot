@@ -141,7 +141,9 @@ function telegramCallbackUpdate(data: string): TelegramUpdate {
   };
 }
 
-test("bridge routes /omx version through Telegram message output", async () => {
+const serialTest = { concurrency: false } as const;
+
+test("bridge routes /omx version through Telegram message output", serialTest, async () => {
   const telegram = new FakeTelegram();
   const codex = new FakeCodex();
   const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
@@ -175,7 +177,7 @@ test("bridge routes /omx version through Telegram message output", async () => {
   assert.equal(telegram.sentMessages[0]!.parseMode, "HTML");
 });
 
-test("bridge shows a friendly message when omx is not installed", async () => {
+test("bridge shows a friendly message when omx is not installed", serialTest, async () => {
   const telegram = new FakeTelegram();
   const codex = new FakeCodex();
   const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
@@ -224,7 +226,7 @@ test("bridge maps skill-first OMX workflows back into the current thread", async
   ]);
 });
 
-test("bridge routes $team through the OMX team CLI path", async () => {
+test("bridge routes $team through the OMX team CLI path", serialTest, async () => {
   const telegram = new FakeTelegram();
   const codex = new FakeCodex();
   const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
