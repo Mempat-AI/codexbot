@@ -38,6 +38,18 @@ export interface LaunchAgentSpec {
   environmentVariables: Record<string, string>;
 }
 
+export interface LinuxSystemdServiceSpec {
+  label: string;
+  serviceName: string;
+  unitPath: string;
+  workingDirectory: string;
+  storageRoot: string;
+  stdoutPath: string;
+  stderrPath: string;
+  programArguments: string[];
+  environmentVariables: Record<string, string>;
+}
+
 interface ExecFileResult {
   stdout: string;
   stderr: string;
@@ -107,6 +119,40 @@ export function buildMacosLaunchAgentSpec(options: {
   };
 }
 
+export function buildLinuxSystemdUserServiceSpec(options: {
+  repoCwd: string;
+  storageRoot: string;
+  homeDir: string;
+  configHome?: string;
+  pathEnv: string;
+  programArguments: string[];
+  extraEnv?: Record<string, string | undefined>;
+}): LinuxSystemdServiceSpec {
+  const serviceId = buildServiceId(options.storageRoot);
+  const label = `${LAUNCH_AGENT_LABEL_PREFIX}.${serviceId}`;
+  const systemdConfigHome = options.configHome ?? path.join(options.homeDir, ".config");
+  const unitDir = path.join(systemdConfigHome, "systemd", "user");
+  const serviceName = `${label}.service`;
+  const logDir = path.join(options.storageRoot, "logs");
+  const environmentVariables = sanitizeEnvironmentVariables({
+    PATH: options.pathEnv,
+    CODEX_ANYWHERE_HOME: options.storageRoot,
+    ...options.extraEnv,
+  });
+
+  return {
+    label,
+    serviceName,
+    unitPath: path.join(unitDir, serviceName),
+    workingDirectory: options.repoCwd,
+    storageRoot: options.storageRoot,
+    stdoutPath: path.join(logDir, "systemd.stdout.log"),
+    stderrPath: path.join(logDir, "systemd.stderr.log"),
+    programArguments: options.programArguments,
+    environmentVariables,
+  };
+}
+
 export function renderLaunchAgentPlist(spec: LaunchAgentSpec): string {
   const programArguments = spec.programArguments
     .map((argument) => `    <string>${escapeXml(argument)}</string>`)
@@ -148,21 +194,42 @@ ${environmentVariables}
 `;
 }
 
+export function renderLinuxSystemdUnit(spec: LinuxSystemdServiceSpec): string {
+  const environmentVariables = Object.entries(spec.environmentVariables)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `Environment=${quoteSystemdEnv(key, value)}`)
+    .join("\n");
+  const environmentSection = environmentVariables ? `${environmentVariables}\n` : "";
+
+  return `[Unit]
+Description=Codex Anywhere background bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${escapeSystemdSettingValue(spec.workingDirectory)}
+ExecStart=${spec.programArguments.map(quoteSystemdValue).join(" ")}
+${environmentSection}Restart=always
+RestartSec=5
+StandardOutput=append:${escapeSystemdSettingValue(spec.stdoutPath)}
+StandardError=append:${escapeSystemdSettingValue(spec.stderrPath)}
+
+[Install]
+WantedBy=default.target
+`;
+}
+
 export async function runBackgroundServiceCommand(
   command: BackgroundServiceCommand,
   options: RunBackgroundServiceCommandOptions = {},
 ): Promise<void> {
   const platform = options.platform ?? process.platform;
-  if (platform !== "darwin") {
-    throw new Error(`Background service management is not implemented on ${platform} yet.`);
-  }
-
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const storagePaths = options.storagePaths ?? getStoragePaths(env);
   const storageRoot = path.dirname(storagePaths.configPath);
   const homeDir = options.homeDir ?? os.homedir();
-  const uid = options.uid ?? currentUid();
   const execFile = options.execFile ?? execFileAsync;
   const log = options.log ?? console.log;
   const packageRoot = options.packageRoot ?? resolvePackageRoot();
@@ -174,62 +241,125 @@ export async function runBackgroundServiceCommand(
     tsxCliPath: options.tsxCliPath,
   });
 
-  const spec = buildMacosLaunchAgentSpec({
-    repoCwd: packageRoot,
-    storageRoot,
-    homeDir,
-    uid,
-    pathEnv: env.PATH ?? "",
-    programArguments,
-    extraEnv: {
-      HOME: env.HOME ?? homeDir,
-      LANG: env.LANG,
-      LC_ALL: env.LC_ALL,
-      TMPDIR: env.TMPDIR,
-      USER: env.USER,
-    },
-  });
+  if (platform === "darwin") {
+    const uid = options.uid ?? currentUid();
+    const spec = buildMacosLaunchAgentSpec({
+      repoCwd: packageRoot,
+      storageRoot,
+      homeDir,
+      uid,
+      pathEnv: env.PATH ?? "",
+      programArguments,
+      extraEnv: {
+        HOME: env.HOME ?? homeDir,
+        LANG: env.LANG,
+        LC_ALL: env.LC_ALL,
+        TMPDIR: env.TMPDIR,
+        USER: env.USER,
+      },
+    });
 
-  switch (command) {
-    case "install-service":
-      await prepareCodexAnywhereConfig({
-        cwd,
-        env,
-        storagePaths,
-        loadConfig: options.loadConfig,
-        saveConfig: options.saveConfig,
-        runSetupWizard: options.runSetupWizard,
-        runPreflightChecks: options.runPreflightChecks,
-        log,
-      });
-      await installLaunchAgent(spec, execFile);
-      log(`Installed LaunchAgent ${spec.label}`);
-      log(`Plist: ${spec.plistPath}`);
-      log(`Logs: ${spec.stdoutPath}`);
-      return;
-    case "start-service":
-      await assertLaunchAgentInstalled(spec);
-      if (!existingConfig) {
-        throw new Error(
-          "Codex Anywhere is not configured yet. Run `npm run connect` or `pnpm run connect` once before starting the service.",
-        );
-      }
-      await startLaunchAgent(spec, execFile);
-      log(`Started LaunchAgent ${spec.label}`);
-      return;
-    case "stop-service":
-      await assertLaunchAgentInstalled(spec);
-      await stopLaunchAgent(spec, execFile);
-      log(`Stopped LaunchAgent ${spec.label}`);
-      return;
-    case "service-status":
-      await printLaunchAgentStatus(spec, execFile, log);
-      return;
-    case "uninstall-service":
-      await uninstallLaunchAgent(spec, execFile);
-      log(`Removed LaunchAgent ${spec.label}`);
-      return;
+    switch (command) {
+      case "install-service":
+        await prepareCodexAnywhereConfig({
+          cwd,
+          env,
+          storagePaths,
+          loadConfig: options.loadConfig,
+          saveConfig: options.saveConfig,
+          runSetupWizard: options.runSetupWizard,
+          runPreflightChecks: options.runPreflightChecks,
+          log,
+        });
+        await installLaunchAgent(spec, execFile);
+        log(`Installed LaunchAgent ${spec.label}`);
+        log(`Plist: ${spec.plistPath}`);
+        log(`Logs: ${spec.stdoutPath}`);
+        return;
+      case "start-service":
+        await assertLaunchAgentInstalled(spec);
+        if (!existingConfig) {
+          throw new Error(
+            "Codex Anywhere is not configured yet. Run `npm run connect` or `pnpm run connect` once before starting the service.",
+          );
+        }
+        await startLaunchAgent(spec, execFile);
+        log(`Started LaunchAgent ${spec.label}`);
+        return;
+      case "stop-service":
+        await assertLaunchAgentInstalled(spec);
+        await stopLaunchAgent(spec, execFile);
+        log(`Stopped LaunchAgent ${spec.label}`);
+        return;
+      case "service-status":
+        await printLaunchAgentStatus(spec, execFile, log);
+        return;
+      case "uninstall-service":
+        await uninstallLaunchAgent(spec, execFile);
+        log(`Removed LaunchAgent ${spec.label}`);
+        return;
+    }
   }
+
+  if (platform === "linux") {
+    const spec = buildLinuxSystemdUserServiceSpec({
+      repoCwd: packageRoot,
+      storageRoot,
+      homeDir,
+      configHome: env.XDG_CONFIG_HOME,
+      pathEnv: env.PATH ?? "",
+      programArguments,
+      extraEnv: {
+        HOME: env.HOME ?? homeDir,
+        LANG: env.LANG,
+        LC_ALL: env.LC_ALL,
+        USER: env.USER,
+      },
+    });
+
+    switch (command) {
+      case "install-service":
+        await prepareCodexAnywhereConfig({
+          cwd,
+          env,
+          storagePaths,
+          loadConfig: options.loadConfig,
+          saveConfig: options.saveConfig,
+          runSetupWizard: options.runSetupWizard,
+          runPreflightChecks: options.runPreflightChecks,
+          log,
+        });
+        await installLinuxSystemdUnit(spec, execFile);
+        log(`Installed systemd user service ${spec.serviceName}`);
+        log(`Unit: ${spec.unitPath}`);
+        log(`Logs: ${spec.stdoutPath}`);
+        return;
+      case "start-service":
+        await assertLinuxSystemdUnitInstalled(spec);
+        if (!existingConfig) {
+          throw new Error(
+            "Codex Anywhere is not configured yet. Run `npm run connect` or `pnpm run connect` once before starting the service.",
+          );
+        }
+        await startLinuxSystemdUnit(spec, execFile);
+        log(`Started systemd user service ${spec.serviceName}`);
+        return;
+      case "stop-service":
+        await assertLinuxSystemdUnitInstalled(spec);
+        await stopLinuxSystemdUnit(spec, execFile);
+        log(`Stopped systemd user service ${spec.serviceName}`);
+        return;
+      case "service-status":
+        await printLinuxSystemdStatus(spec, execFile, log);
+        return;
+      case "uninstall-service":
+        await uninstallLinuxSystemdUnit(spec, execFile);
+        log(`Removed systemd user service ${spec.serviceName}`);
+        return;
+    }
+  }
+
+  throw new Error(`Background service management is not implemented on ${platform}.`);
 }
 
 async function installLaunchAgent(
@@ -310,10 +440,94 @@ async function printLaunchAgentStatus(
   log(lines.join("\n"));
 }
 
+async function installLinuxSystemdUnit(
+  spec: LinuxSystemdServiceSpec,
+  execFile: ServiceExecFile,
+): Promise<void> {
+  await fs.mkdir(path.dirname(spec.unitPath), { recursive: true });
+  await fs.mkdir(path.dirname(spec.stdoutPath), { recursive: true });
+  await fs.writeFile(spec.unitPath, renderLinuxSystemdUnit(spec), "utf8");
+  await runSystemctl(execFile, ["--user", "daemon-reload"]);
+  await runSystemctl(execFile, ["--user", "enable", "--now", spec.serviceName]);
+}
+
+async function startLinuxSystemdUnit(
+  spec: LinuxSystemdServiceSpec,
+  execFile: ServiceExecFile,
+): Promise<void> {
+  await runSystemctl(execFile, ["--user", "daemon-reload"]);
+  await runSystemctl(execFile, ["--user", "enable", "--now", spec.serviceName]);
+}
+
+async function stopLinuxSystemdUnit(
+  spec: LinuxSystemdServiceSpec,
+  execFile: ServiceExecFile,
+): Promise<void> {
+  await runSystemctl(execFile, ["--user", "disable", "--now", spec.serviceName], {
+    ignoreFailure: true,
+  });
+}
+
+async function uninstallLinuxSystemdUnit(
+  spec: LinuxSystemdServiceSpec,
+  execFile: ServiceExecFile,
+): Promise<void> {
+  await runSystemctl(execFile, ["--user", "disable", "--now", spec.serviceName], {
+    ignoreFailure: true,
+  });
+  await fs.rm(spec.unitPath, { force: true });
+  await runSystemctl(execFile, ["--user", "daemon-reload"]);
+}
+
+async function printLinuxSystemdStatus(
+  spec: LinuxSystemdServiceSpec,
+  execFile: ServiceExecFile,
+  log: (message: string) => void,
+): Promise<void> {
+  const installed = await fileExists(spec.unitPath);
+  const active = await runSystemctl(execFile, ["--user", "is-active", spec.serviceName], {
+    ignoreFailure: true,
+  });
+  const enabled = await runSystemctl(execFile, ["--user", "is-enabled", spec.serviceName], {
+    ignoreFailure: true,
+  });
+  const detail = await runSystemctl(execFile, ["--user", "status", spec.serviceName], {
+    ignoreFailure: true,
+  });
+  const lines = [
+    `platform: linux`,
+    `label: ${spec.label}`,
+    `unit: ${spec.unitPath}`,
+    `installed: ${installed ? "yes" : "no"}`,
+    `enabled: ${enabled.ok ? enabled.stdout.trim() || "yes" : "no"}`,
+    `active: ${active.ok ? active.stdout.trim() || "yes" : "no"}`,
+    `storage-root: ${spec.storageRoot}`,
+    `stdout-log: ${spec.stdoutPath}`,
+    `stderr-log: ${spec.stderrPath}`,
+  ];
+  if (detail.stdout.trim()) {
+    lines.push("");
+    lines.push("systemctl --user status:");
+    lines.push(detail.stdout.trim());
+  } else if (!installed) {
+    lines.push("");
+    lines.push("systemd user service is not installed.");
+  }
+  log(lines.join("\n"));
+}
+
 async function assertLaunchAgentInstalled(spec: LaunchAgentSpec): Promise<void> {
   if (!(await fileExists(spec.plistPath))) {
     throw new Error(
       `LaunchAgent is not installed yet: ${spec.plistPath}\nRun \`npm run service:install\` or \`pnpm run service:install\` first.`,
+    );
+  }
+}
+
+async function assertLinuxSystemdUnitInstalled(spec: LinuxSystemdServiceSpec): Promise<void> {
+  if (!(await fileExists(spec.unitPath))) {
+    throw new Error(
+      `systemd user service is not installed yet: ${spec.unitPath}\nRun \`npm run service:install\` or \`pnpm run service:install\` first.`,
     );
   }
 }
@@ -407,6 +621,18 @@ function escapeXml(value: string): string {
     .replaceAll("'", "&apos;");
 }
 
+function quoteSystemdValue(value: string): string {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+}
+
+function quoteSystemdEnv(key: string, value: string): string {
+  return `${quoteSystemdValue(`${key}=${value}`)}`;
+}
+
+function escapeSystemdSettingValue(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll(" ", "\\ ");
+}
+
 async function runLaunchctl(
   execFile: ServiceExecFile,
   args: string[],
@@ -449,4 +675,37 @@ function extractProcessOutput(
 function formatLaunchctlError(args: string[], output: string): string {
   const suffix = output.trim() ? `: ${output.trim()}` : "";
   return `launchctl ${args.join(" ")} failed${suffix}`;
+}
+
+async function runSystemctl(
+  execFile: ServiceExecFile,
+  args: string[],
+  options: { ignoreFailure?: boolean } = {},
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  try {
+    const result = await execFile("systemctl", args, {
+      env: process.env,
+    });
+    return {
+      ok: true,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } catch (error) {
+    const stdout = extractProcessOutput(error, "stdout");
+    const stderr = extractProcessOutput(error, "stderr");
+    if (options.ignoreFailure) {
+      return {
+        ok: false,
+        stdout,
+        stderr,
+      };
+    }
+    throw new Error(formatSystemctlError(args, stderr || stdout));
+  }
+}
+
+function formatSystemctlError(args: string[], output: string): string {
+  const suffix = output.trim() ? `: ${output.trim()}` : "";
+  return `systemctl ${args.join(" ")} failed${suffix}`;
 }

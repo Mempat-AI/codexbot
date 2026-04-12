@@ -5,7 +5,9 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  buildLinuxSystemdUserServiceSpec,
   buildMacosLaunchAgentSpec,
+  renderLinuxSystemdUnit,
   renderLaunchAgentPlist,
   resolveServiceProgramArguments,
   runBackgroundServiceCommand,
@@ -70,6 +72,59 @@ test("renderLaunchAgentPlist includes keepalive and launchd paths", () => {
   assert.match(plist, /<key>CODEX_ANYWHERE_HOME<\/key>/);
   assert.match(plist, /launchd\.stdout\.log/);
   assert.match(plist, /launchd\.stderr\.log/);
+});
+
+test("buildLinuxSystemdUserServiceSpec uses a stable storage-root-backed unit path", () => {
+  const spec = buildLinuxSystemdUserServiceSpec({
+    repoCwd: "/home/alice/works/codex-anywhere",
+    storageRoot: "/home/alice/.config/codex-anywhere/workspaces/codex-anywhere-7b81419410a5",
+    homeDir: "/home/alice",
+    pathEnv: "/usr/local/bin:/usr/bin:/bin",
+    programArguments: [
+      "/usr/bin/node",
+      "/home/alice/works/codex-anywhere/dist/cli.js",
+      "connect",
+    ],
+    extraEnv: {
+      HOME: "/home/alice",
+      LANG: "en_US.UTF-8",
+    },
+  });
+
+  assert.match(spec.label, /^ai\.mempat\.codex-anywhere\./);
+  assert.equal(
+    spec.unitPath,
+    `/home/alice/.config/systemd/user/${spec.serviceName}`,
+  );
+  assert.match(spec.serviceName, /^ai\.mempat\.codex-anywhere\..+\.service$/);
+  assert.equal(spec.workingDirectory, "/home/alice/works/codex-anywhere");
+  assert.equal(
+    spec.environmentVariables.CODEX_ANYWHERE_HOME,
+    "/home/alice/.config/codex-anywhere/workspaces/codex-anywhere-7b81419410a5",
+  );
+});
+
+test("renderLinuxSystemdUnit includes restart policy, environment, and log paths", () => {
+  const spec = buildLinuxSystemdUserServiceSpec({
+    repoCwd: "/home/alice/works/codex-anywhere",
+    storageRoot: "/home/alice/.config/codex-anywhere/workspaces/codex-anywhere-7b81419410a5",
+    homeDir: "/home/alice",
+    pathEnv: "/usr/local/bin:/usr/bin:/bin",
+    programArguments: [
+      "/usr/bin/node",
+      "/home/alice/works/codex-anywhere/dist/cli.js",
+      "connect",
+    ],
+  });
+
+  const unit = renderLinuxSystemdUnit(spec);
+
+  assert.match(unit, /^Description=Codex Anywhere background bridge/m);
+  assert.match(unit, /^Restart=always$/m);
+  assert.match(unit, /^WorkingDirectory=\/home\/alice\/works\/codex-anywhere$/m);
+  assert.match(unit, /^Environment="CODEX_ANYWHERE_HOME=/m);
+  assert.match(unit, /^StandardOutput=append:\/home\/alice\/.*systemd\.stdout\.log$/m);
+  assert.match(unit, /^StandardError=append:\/home\/alice\/.*systemd\.stderr\.log$/m);
 });
 
 test("resolveServiceProgramArguments prefers source mode when src/cli.ts exists", async () => {
@@ -177,12 +232,67 @@ test("install-service prepares config, writes a plist, and bootstraps launchctl"
   assert.match(savedLogs.join("\n"), /Installed LaunchAgent/);
 });
 
-test("service commands are placeholders on non-macOS platforms", async () => {
-  await assert.rejects(
-    () =>
-      runBackgroundServiceCommand("service-status", {
-        platform: "linux",
-      }),
-    /not implemented on linux yet/,
-  );
+test("install-service on linux writes a user unit and enables it", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-anywhere-service-install-linux-"));
+  const homeDir = path.join(tempDir, "home");
+  const repoDir = path.join(tempDir, "repo");
+  const storageRoot = path.join(tempDir, "storage");
+  const storagePaths = {
+    configPath: path.join(storageRoot, "config.json"),
+    statePath: path.join(storageRoot, "state.json"),
+  };
+  await fs.mkdir(homeDir, { recursive: true });
+  await fs.mkdir(repoDir, { recursive: true });
+
+  const systemctlCalls: string[][] = [];
+  const savedLogs: string[] = [];
+
+  await runBackgroundServiceCommand("install-service", {
+    cwd: repoDir,
+    env: {
+      PATH: "/usr/local/bin:/usr/bin:/bin",
+      HOME: homeDir,
+      USER: "alice",
+    },
+    platform: "linux",
+    homeDir,
+    storagePaths,
+    nodePath: "/usr/bin/node",
+    tsxCliPath: "/tmp/tsx-cli.mjs",
+    loadConfig: async () => null,
+    saveConfig: async (configPath, config) => {
+      await fs.mkdir(path.dirname(configPath), { recursive: true });
+      await fs.writeFile(configPath, JSON.stringify(config), "utf8");
+    },
+    runSetupWizard: async () => ({
+      version: 1,
+      telegramBotToken: "token",
+      workspaceCwd: "/home/alice/workspace",
+      ownerUserId: null,
+      pollTimeoutSeconds: 20,
+      streamEditIntervalMs: 1500,
+    }),
+    runPreflightChecks: async () => {},
+    execFile: async (file, args) => {
+      assert.equal(file, "systemctl");
+      systemctlCalls.push(args);
+      return { stdout: "", stderr: "" };
+    },
+    log: (message) => {
+      savedLogs.push(message);
+    },
+  });
+
+  const unitDir = path.join(homeDir, ".config", "systemd", "user");
+  const unitFiles = await fs.readdir(unitDir);
+  assert.equal(unitFiles.length, 1);
+  const unitPath = path.join(unitDir, unitFiles[0]!);
+  const unit = await fs.readFile(unitPath, "utf8");
+  assert.match(unit, /^ExecStart="\/usr\/bin\/node" "\/tmp\/tsx-cli\.mjs"/m);
+  assert.match(unit, /^Restart=always$/m);
+  assert.deepEqual(systemctlCalls, [
+    ["--user", "daemon-reload"],
+    ["--user", "enable", "--now", unitFiles[0]!],
+  ]);
+  assert.match(savedLogs.join("\n"), /Installed systemd user service/);
 });

@@ -51,7 +51,7 @@ Usage:
 Behavior:
   - connect runs guided setup on first launch and starts the Telegram bridge
   - macOS service commands manage a LaunchAgent background service
-  - non-macOS service commands are placeholders for now
+  - Linux service commands manage a user-level systemd background service
   - config/state live under CODEX_ANYWHERE_HOME or your user config directory
 `);
 }
