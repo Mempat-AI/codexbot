@@ -301,6 +301,7 @@ export async function runBackgroundServiceCommand(
       log(`Removed LaunchAgent ${spec.label}`);
       return;
   }
+  }
 
   if (platform === "linux") {
     const spec = buildLinuxSystemdUserServiceSpec({
