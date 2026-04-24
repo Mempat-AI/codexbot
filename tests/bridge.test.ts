@@ -269,6 +269,43 @@ test("bridge maps skill-first OMX workflows back into the current thread", async
   ]);
 });
 
+test("final agent message chunks are not sent twice when the turn completes", async () => {
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
+    telegram,
+    codex,
+    initialState: testState(),
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("hello"));
+
+  const longText = "a".repeat(8000);
+  await bridge.handleNotificationForTest("item/completed", {
+    threadId: "thread-1",
+    turnId: "turn-1",
+    item: {
+      id: "item-1",
+      type: "agentMessage",
+      text: longText,
+      phase: "final",
+    },
+  });
+
+  const messagesAfterItem = telegram.sentMessages.length;
+  assert.equal(messagesAfterItem, 3);
+
+  await bridge.handleNotificationForTest("turn/completed", {
+    threadId: "thread-1",
+    turn: {
+      id: "turn-1",
+      status: "completed",
+    },
+  });
+
+  assert.equal(telegram.sentMessages.length, messagesAfterItem);
+});
+
 test("bridge routes /computer through the Computer Use plugin mention", async () => {
   const telegram = new FakeTelegram();
   const codex = new FakeCodex();
