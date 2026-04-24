@@ -41,6 +41,7 @@ function testState(threadId: string | null): StoredState {
         collaborationMode: null,
         serviceTier: null,
         approvalPolicy: null,
+        sandboxMode: null,
         lastAssistantMessage: null,
       },
     },

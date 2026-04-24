@@ -10,6 +10,7 @@ export type LocalInteractiveCommand =
   | "model"
   | "fast"
   | "permissions"
+  | "sandbox"
   | "experimental"
   | "personality"
   | "collab"
@@ -161,6 +162,28 @@ export function buildApprovalPolicyInteractiveSession(
       },
     ],
     meta: { command: "permissions" },
+  };
+}
+
+export function buildSandboxInteractiveSession(
+  state: ChatSessionState,
+): LocalInteractiveSessionSpec {
+  return {
+    title: "Choose the sandbox policy.",
+    steps: [
+      {
+        key: "sandboxMode",
+        prompt: `Current sandbox: ${state.sandboxMode ?? "workspace-write"}`,
+        kind: "choice",
+        options: [
+          { label: "Read-only", value: "read-only" },
+          { label: "Workspace write", value: "workspace-write" },
+          { label: "Danger full access", value: "danger-full-access" },
+        ],
+        required: true,
+      },
+    ],
+    meta: { command: "sandbox" },
   };
 }
 
@@ -449,6 +472,7 @@ export function buildLocalInteractiveFollowUpSteps(
         },
       ];
     case "personality":
+    case "sandbox":
     case "collab":
     case "plan":
     case "feedback":

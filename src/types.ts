@@ -2,6 +2,8 @@ export type JsonObject = Record<string, unknown>;
 
 export type ApprovalAction = "approve" | "session" | "decline" | "cancel";
 
+export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+
 export interface TelegramBotCommand {
   command: string;
   description: string;
@@ -61,6 +63,7 @@ export interface ChatSessionState {
   collaborationMode: JsonObject | null;
   serviceTier: string | null;
   approvalPolicy: string | null;
+  sandboxMode: SandboxMode | null;
   lastAssistantMessage: string | null;
 }
 

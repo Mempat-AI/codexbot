@@ -35,6 +35,7 @@ export async function loadState(statePath: string): Promise<StoredState> {
     chat.collaborationMode ??= null;
     chat.serviceTier ??= null;
     chat.approvalPolicy ??= null;
+    chat.sandboxMode ??= null;
     chat.lastAssistantMessage ??= null;
   }
   return state;

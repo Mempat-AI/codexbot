@@ -138,6 +138,7 @@ function testChatState(overrides: Partial<ChatSessionState> = {}): ChatSessionSt
     collaborationMode: null,
     serviceTier: null,
     approvalPolicy: null,
+    sandboxMode: null,
     lastAssistantMessage: null,
     ...overrides,
   };
@@ -408,6 +409,7 @@ test("bridge switches workspace and clears chat thread state", async () => {
         collaborationMode: { mode: "plan" },
         serviceTier: "fast",
         approvalPolicy: "on-request",
+        sandboxMode: "read-only",
         lastAssistantMessage: "hello",
       },
     },
@@ -441,6 +443,28 @@ test("bridge switches workspace and clears chat thread state", async () => {
   assert.equal(telegram.sentMessages.length, 1);
   assert.match(telegram.sentMessages[0]!.text, /Workspace changed to/);
   assert.match(telegram.sentMessages[0]!.text, /Detached current thread\/session state/);
+});
+
+test("bridge sets sandbox mode and applies it to new turns", async () => {
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
+    telegram,
+    codex,
+    initialState: testState(),
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("/sandbox read-only"));
+  await bridge.handleUpdateForTest(telegramMessageUpdate("Inspect the repo"));
+
+  assert.equal(telegram.sentMessages[0]!.text, "Sandbox mode set to read-only. Applies to new turns.");
+  assert.equal(codex.calls[0]!.method, "thread/start");
+  assert.equal(codex.calls[0]!.params?.sandbox, "read-only");
+  assert.equal(codex.calls[1]!.method, "turn/start");
+  assert.deepEqual(codex.calls[1]!.params?.sandboxPolicy, {
+    type: "readOnly",
+    networkAccess: true,
+  });
 });
 
 test("bridge recreates a fresh thread when resume reports a missing rollout", async () => {
@@ -777,6 +801,7 @@ test("cancelling cross-workspace /continue preserves the current workspace and t
         collaborationMode: null,
         serviceTier: null,
         approvalPolicy: null,
+        sandboxMode: null,
         lastAssistantMessage: null,
       },
     },

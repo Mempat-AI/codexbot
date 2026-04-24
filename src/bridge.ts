@@ -24,6 +24,7 @@ import {
   buildAddBotInteractiveSession,
   buildApprovalPolicyInteractiveSession,
   buildCollaborationInteractiveSession,
+  buildSandboxInteractiveSession,
   buildExperimentalInteractiveSession,
   buildFastInteractiveSession,
   buildFeedbackInteractiveSession,
@@ -47,6 +48,7 @@ import {
   isUnsupportedTelegramOnlyCodexCommand,
   normalizeApprovalPolicy,
   normalizeReasoningEffort,
+  normalizeSandboxMode,
   parseTelegramSlashCommand,
 } from "./slashCommands.js";
 import { buildOmxHelpText, planOmxCommand } from "./omxCommands.js";
@@ -552,6 +554,9 @@ export class CodexAnywhereBridge {
       case "permissions":
         await this.#handleApprovalPolicyCommand(chatId, args);
         return;
+      case "sandbox":
+        await this.#handleSandboxCommand(chatId, args);
+        return;
       case "clear":
         await this.#clearThread(chatId);
         return;
@@ -942,7 +947,7 @@ export class CodexAnywhereBridge {
     }
 
     const steps = buildLocalInteractiveFollowUpSteps(
-      command as "model" | "fast" | "permissions" | "experimental" | "rename" | "review",
+      command as "model" | "fast" | "permissions" | "sandbox" | "experimental" | "rename" | "review",
       session.answers,
     );
     if (steps.length === 0) {
@@ -1069,6 +1074,9 @@ export class CodexAnywhereBridge {
         return;
       case "permissions":
         await this.#applyLocalApprovalPolicySelection(session.chatId, session.answers);
+        return;
+      case "sandbox":
+        await this.#applyLocalSandboxSelection(session.chatId, session.answers);
         return;
       case "experimental":
         await this.#applyLocalExperimentalSelection(session.chatId, session.answers);
@@ -1471,6 +1479,36 @@ export class CodexAnywhereBridge {
     state.approvalPolicy = policy;
     await this.#saveState();
     await this.#sendText(chatId, `Approval policy set to ${policy}.`);
+  }
+
+  async #handleSandboxCommand(chatId: number, args: string): Promise<void> {
+    const state = this.#chatState(chatId);
+    const trimmed = args.trim().toLowerCase();
+    if (!trimmed) {
+      await this.#startLocalSlashInteractiveSession(chatId, buildSandboxInteractiveSession(state));
+      return;
+    }
+    if (trimmed === "status") {
+      await this.#sendText(
+        chatId,
+        [
+          `sandbox: ${state.sandboxMode ?? "workspace-write"}`,
+          "Usage: /sandbox [status|read-only|workspace-write|danger-full-access]",
+        ].join("\n"),
+      );
+      return;
+    }
+    const mode = normalizeSandboxMode(trimmed);
+    if (!mode) {
+      await this.#sendText(
+        chatId,
+        "Usage: /sandbox [status|read-only|workspace-write|danger-full-access]",
+      );
+      return;
+    }
+    state.sandboxMode = mode;
+    await this.#saveState();
+    await this.#sendText(chatId, `Sandbox mode set to ${mode}. Applies to new turns.`);
   }
 
   async #clearThread(chatId: number): Promise<void> {
@@ -2545,6 +2583,7 @@ export class CodexAnywhereBridge {
       `model  <code>${esc(state.model ?? "default")}${state.reasoningEffort ? ` (${state.reasoningEffort})` : ""}</code>`,
       `fast  <code>${state.serviceTier === "fast" ? "on" : "off"}</code>`,
       `approval  <code>${esc(state.approvalPolicy ?? "on-request")}</code>`,
+      `sandbox  <code>${esc(state.sandboxMode ?? "workspace-write")}</code>`,
       `rate limits  ${esc(rateLimits)}`,
     ];
     await this.#sendHtmlText(chatId, lines.join("\n"));
@@ -2831,6 +2870,21 @@ export class CodexAnywhereBridge {
     this.#chatState(chatId).approvalPolicy = policy;
     await this.#saveState();
     await this.#sendText(chatId, `Approval policy set to ${policy}.`);
+  }
+
+  async #applyLocalSandboxSelection(
+    chatId: number,
+    answers: Record<string, unknown>,
+  ): Promise<void> {
+    const rawMode = asString(answers.sandboxMode);
+    const mode = rawMode ? normalizeSandboxMode(rawMode) : null;
+    if (!mode) {
+      await this.#sendText(chatId, "Sandbox selection was incomplete.");
+      return;
+    }
+    this.#chatState(chatId).sandboxMode = mode;
+    await this.#saveState();
+    await this.#sendText(chatId, `Sandbox mode set to ${mode}. Applies to new turns.`);
   }
 
   async #applyLocalCollaborationSelection(
@@ -3201,6 +3255,7 @@ export class CodexAnywhereBridge {
         collaborationMode: null,
         serviceTier: null,
         approvalPolicy: null,
+        sandboxMode: null,
         lastAssistantMessage: null,
       };
     }
@@ -3503,7 +3558,7 @@ function threadSessionOverrides(config: BotRuntimeConfig, state: ChatSessionStat
   const params: JsonObject = {
     cwd: config.workspaceCwd,
     approvalPolicy: state.approvalPolicy ?? "on-request",
-    sandbox: "workspace-write",
+    sandbox: currentSandboxMode(state),
   };
   if (state.model) {
     params.model = state.model;
@@ -3521,11 +3576,7 @@ function turnSessionOverrides(config: BotRuntimeConfig, state: ChatSessionState)
   const params: JsonObject = {
     cwd: config.workspaceCwd,
     approvalPolicy: state.approvalPolicy ?? "on-request",
-    sandboxPolicy: {
-      type: "workspaceWrite",
-      writableRoots: [config.workspaceCwd],
-      networkAccess: true,
-    },
+    sandboxPolicy: buildTurnSandboxPolicy(config, state),
   };
   if (state.model) {
     params.model = state.model;
@@ -3543,6 +3594,32 @@ function turnSessionOverrides(config: BotRuntimeConfig, state: ChatSessionState)
     params.effort = state.reasoningEffort;
   }
   return params;
+}
+
+function currentSandboxMode(state: ChatSessionState): string {
+  return state.sandboxMode ?? "workspace-write";
+}
+
+function buildTurnSandboxPolicy(config: BotRuntimeConfig, state: ChatSessionState): JsonObject {
+  const sandboxMode = currentSandboxMode(state);
+  switch (sandboxMode) {
+    case "read-only":
+      return {
+        type: "readOnly",
+        networkAccess: true,
+      };
+    case "danger-full-access":
+      return {
+        type: "dangerFullAccess",
+        networkAccess: true,
+      };
+    default:
+      return {
+        type: "workspaceWrite",
+        writableRoots: [config.workspaceCwd],
+        networkAccess: true,
+      };
+  }
 }
 
 function parseReviewTarget(args: string): JsonObject {
@@ -3816,6 +3893,7 @@ function telegramCommands(): TelegramBotCommand[] {
     { command: "collab", description: "change collaboration mode" },
     { command: "agent", description: "switch active agent thread" },
     { command: "permissions", description: "set the approval policy" },
+    { command: "sandbox", description: "set the sandbox policy" },
     { command: "review", description: "start a code review" },
     { command: "rename", description: "rename the current thread" },
     { command: "fork", description: "fork the current thread" },
