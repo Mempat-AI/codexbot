@@ -208,6 +208,10 @@ export class CodexAnywhereBridge {
     await this.#handleUpdate(update);
   }
 
+  async handleNotificationForTest(method: string, params: JsonObject): Promise<void> {
+    await this.#handleNotification(method, params);
+  }
+
   async #pollTelegramLoop(): Promise<void> {
     while (true) {
       try {
@@ -2637,6 +2641,10 @@ export class CodexAnywhereBridge {
   }
 
   async #flushStream(stream: StreamBuffer, force: boolean): Promise<void> {
+    if (force && stream.finalized) {
+      return;
+    }
+
     const now = Date.now();
     if (!force && now - stream.lastFlushAt < this.#config.streamEditIntervalMs) {
       return;
@@ -2673,6 +2681,9 @@ export class CodexAnywhereBridge {
     }
 
     stream.lastFlushAt = now;
+    if (force) {
+      stream.finalized = true;
+    }
   }
 
   async #sendText(
@@ -2770,6 +2781,7 @@ export class CodexAnywhereBridge {
       messageId: null,
       lastFlushAt: 0,
       phase,
+      finalized: false,
     };
     this.#streams.set(streamId, stream);
     return stream;

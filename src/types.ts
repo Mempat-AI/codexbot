@@ -153,4 +153,5 @@ export interface StreamBuffer {
   messageId: number | null;
   lastFlushAt: number;
   phase: string | null;
+  finalized: boolean;
 }
