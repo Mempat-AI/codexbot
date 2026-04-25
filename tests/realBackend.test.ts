@@ -137,8 +137,9 @@ test(
       assert.match(telegram.sentMessages.at(-1)?.text ?? "", /Took over session/);
 
       await bridge.handleUpdateForTest(telegramMessageUpdate(5, "/status"));
-      assert.match(telegram.sentMessages.at(-1)?.text ?? "", new RegExp(`workspace: ${workspaceDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-      assert.match(telegram.sentMessages.at(-1)?.text ?? "", /thread: /);
+      assert.match(telegram.sentMessages.at(-1)?.text ?? "", /<b>Workspace<\/b>/);
+      assert.match(telegram.sentMessages.at(-1)?.text ?? "", new RegExp(`<code>${workspaceDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</code>`));
+      assert.match(telegram.sentMessages.at(-1)?.text ?? "", /<b>Thread<\/b>/);
 
       await bridge.handleUpdateForTest(telegramMessageUpdate(6, "/model status"));
       assert.match(telegram.sentMessages.at(-1)?.text ?? "", /Available models:/);
@@ -230,7 +231,7 @@ test(
       await expectCommand(1, "/start", /Codex Anywhere is ready/);
       await expectCommand(2, "/help", /Codex Anywhere commands:/);
       await expectCommand(3, "/workspace", /Current workspace:/);
-      await expectCommand(4, "/status", /workspace:/);
+      await expectCommand(4, "/status", /<b>Workspace<\/b>/);
       await expectCommand(5, "/new", /Started a fresh Codex thread/);
       await expectCommand(6, "/resume", /(Sessions|No recent sessions were found\.)/);
       await expectCommand(7, "/continue", /All Sessions/);
@@ -242,7 +243,6 @@ test(
       await expectCommand(10, "/esc", /No active turn to interrupt/);
       await expectCommand(11, "/ese", /No active turn to interrupt/);
       await expectCommand(12, "/cancel", /No active interactive prompt/);
-      await expectCommand(13, "/sh pwd", /Confirm explicit shell command/);
       await expectCommand(14, "/model status", /Available models:/);
       await expectCommand(15, "/fast status", /Fast mode is/);
       await expectCommand(16, "/personality status", /Personality:/);

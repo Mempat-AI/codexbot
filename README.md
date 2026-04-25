@@ -143,9 +143,9 @@ Telegram-native:
 | `/computer <task>` | Run a task through the bundled Computer Use plugin |
 | `/esc` `/ese` | Interrupt aliases |
 
-Codex commands supported through the bridge:
+Codex slash commands supported through the bridge:
 
-`/start` `/help` `/new` `/resume` `/continue` `/interrupt` `/cancel` `/status` `/sh` `/workspace` `/addbot` `/omx` `/computer` `/model` `/fast` `/personality` `/permissions` `/plan` `/collab` `/agent` `/subagents` `/review` `/rename` `/fork` `/compact` `/clear` `/diff` `/copy` `/mention` `/skills` `/mcp` `/apps` `/plugins` `/feedback` `/experimental` `/rollout` `/logout` `/quit` `/exit` `/stop`
+`/start` `/help` `/new` `/resume` `/continue` `/interrupt` `/cancel` `/status` `/workspace` `/addbot` `/omx` `/computer` `/model` `/fast` `/personality` `/permissions` `/sandbox` `/plan` `/collab` `/agent` `/subagents` `/review` `/rename` `/fork` `/compact` `/clear` `/diff` `/copy` `/mention` `/skills` `/mcp` `/apps` `/plugins` `/feedback` `/experimental` `/rollout` `/logout` `/quit` `/exit` `/stop`
 
 ## Development
 
@@ -187,7 +187,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution rules.
 - Single-user (for now), private chats only
 - `codex` must be installed and authenticated before setup
 - Config and state live under the user config directory or `CODEX_ANYWHERE_HOME`
-- `/sh` is explicit and confirmation-gated by design
 - Background service install supports macOS LaunchAgent and Linux user-level `systemd`
 
 ---
