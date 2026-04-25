@@ -135,6 +135,7 @@ function chatState(threadId: string | null): ChatSessionState {
     collaborationMode: null,
     serviceTier: null,
     approvalPolicy: null,
+    sandboxMode: null,
     lastAssistantMessage: null,
   };
 }

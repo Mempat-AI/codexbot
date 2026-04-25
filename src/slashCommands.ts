@@ -1,3 +1,5 @@
+import type { SandboxMode } from "./types.js";
+
 export interface ParsedTelegramSlashCommand {
   name: string;
   args: string;
@@ -28,6 +30,7 @@ const SUPPORTED_CODEX_COMMANDS = new Set([
   "personality",
   "plan",
   "permissions",
+  "sandbox",
   "plugins",
   "quit",
   "rename",
@@ -41,6 +44,19 @@ const SUPPORTED_CODEX_COMMANDS = new Set([
   "verbose",
   "clean",
   "exit",
+]);
+
+const SANDBOX_MODE_ALIASES = new Map<string, SandboxMode>([
+  ["read-only", "read-only"],
+  ["readonly", "read-only"],
+  ["read_only", "read-only"],
+  ["workspace-write", "workspace-write"],
+  ["workspacewrite", "workspace-write"],
+  ["workspace_write", "workspace-write"],
+  ["danger-full-access", "danger-full-access"],
+  ["danger", "danger-full-access"],
+  ["dangerfullaccess", "danger-full-access"],
+  ["danger_full_access", "danger-full-access"],
 ]);
 
 const KNOWN_BUT_UNSUPPORTED_COMMANDS = new Set([
@@ -111,6 +127,7 @@ export function isTaskBlockingSlashCommand(name: string): boolean {
     "personality",
     "plan",
     "permissions",
+    "sandbox",
     "rename",
     "resume",
     "review",
@@ -119,6 +136,10 @@ export function isTaskBlockingSlashCommand(name: string): boolean {
 
 export function normalizeApprovalPolicy(value: string): string | null {
   return APPROVAL_POLICY_ALIASES.get(value.trim().toLowerCase()) ?? null;
+}
+
+export function normalizeSandboxMode(value: string): SandboxMode | null {
+  return SANDBOX_MODE_ALIASES.get(value.trim().toLowerCase()) ?? null;
 }
 
 export function normalizeReasoningEffort(value: string): string | null {
@@ -140,6 +161,7 @@ export function codexSlashHelpText(): string {
     "/fast [status|on|off]",
     "/personality [friendly|pragmatic|none]",
     "/permissions [status|untrusted|on-failure|on-request|never]",
+    "/sandbox [status|read-only|workspace-write|danger-full-access]",
     "/plan [task]",
     "/collab [mode]",
     "/agent, /subagents",

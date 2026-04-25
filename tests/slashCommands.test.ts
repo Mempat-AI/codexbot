@@ -6,6 +6,7 @@ import {
   isRecognizedCodexSlashCommand,
   normalizeApprovalPolicy,
   normalizeReasoningEffort,
+  normalizeSandboxMode,
   parseTelegramSlashCommand,
 } from "../src/slashCommands.js";
 
@@ -32,6 +33,13 @@ test("normalizeApprovalPolicy accepts common aliases", () => {
   assert.equal(normalizeApprovalPolicy("bad"), null);
 });
 
+test("normalizeSandboxMode accepts common aliases", () => {
+  assert.equal(normalizeSandboxMode("readonly"), "read-only");
+  assert.equal(normalizeSandboxMode("workspace_write"), "workspace-write");
+  assert.equal(normalizeSandboxMode("danger"), "danger-full-access");
+  assert.equal(normalizeSandboxMode("bad"), null);
+});
+
 test("normalizeReasoningEffort only accepts supported values", () => {
   assert.equal(normalizeReasoningEffort("high"), "high");
   assert.equal(normalizeReasoningEffort("minimal"), "minimal");
@@ -40,6 +48,10 @@ test("normalizeReasoningEffort only accepts supported values", () => {
 
 test("codexSlashHelpText mentions /omx bridge support", () => {
   assert.match(codexSlashHelpText(), /\/omx \[args]/);
+});
+
+test("codexSlashHelpText mentions /sandbox support", () => {
+  assert.match(codexSlashHelpText(), /\/sandbox \[status\|read-only\|workspace-write\|danger-full-access]/);
 });
 
 test("codexSlashHelpText mentions /computer plugin support", () => {

@@ -5,6 +5,7 @@ import {
   buildApprovalPolicyInteractiveSession,
   buildExperimentalInteractiveSession,
   buildFastInteractiveSession,
+  buildSandboxInteractiveSession,
   buildLocalInteractiveFollowUpSteps,
   buildModelInteractiveSession,
   buildReviewInteractiveSession,
@@ -31,6 +32,7 @@ test("buildModelInteractiveSession includes reset and available models", () => {
       collaborationMode: null,
       serviceTier: null,
       approvalPolicy: null,
+      sandboxMode: null,
       lastAssistantMessage: null,
     },
   );
@@ -85,6 +87,7 @@ test("simple slash command sessions expose expected keys", () => {
     collaborationMode: null,
     serviceTier: "fast",
     approvalPolicy: null,
+    sandboxMode: null,
     lastAssistantMessage: null,
   });
   const approvals = buildApprovalPolicyInteractiveSession({
@@ -101,6 +104,24 @@ test("simple slash command sessions expose expected keys", () => {
     collaborationMode: null,
     serviceTier: null,
     approvalPolicy: "on-request",
+    sandboxMode: null,
+    lastAssistantMessage: null,
+  });
+  const sandbox = buildSandboxInteractiveSession({
+    threadId: null,
+    activeTurnId: null,
+    verbose: false,
+    queueNextArmed: false,
+    queuedTurnInput: null,
+    pendingTurnInput: null,
+    model: null,
+    reasoningEffort: null,
+    personality: null,
+    collaborationModeName: null,
+    collaborationMode: null,
+    serviceTier: null,
+    approvalPolicy: null,
+    sandboxMode: "read-only",
     lastAssistantMessage: null,
   });
   const review = buildReviewInteractiveSession();
@@ -118,11 +139,13 @@ test("simple slash command sessions expose expected keys", () => {
     collaborationMode: null,
     serviceTier: null,
     approvalPolicy: null,
+    sandboxMode: null,
     lastAssistantMessage: null,
   });
 
   assert.equal(fast.meta.command, "fast");
   assert.equal(approvals.meta.command, "permissions");
+  assert.equal(sandbox.meta.command, "sandbox");
   assert.equal(review.meta.command, "review");
   assert.equal(verbose.meta.command, "verbose");
 });

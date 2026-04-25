@@ -121,6 +121,7 @@ function defaultChatState(overrides: Partial<ChatSessionState> = {}): ChatSessio
     collaborationMode: null,
     serviceTier: null,
     approvalPolicy: null,
+    sandboxMode: null,
     lastAssistantMessage: null,
     ...overrides,
   };
