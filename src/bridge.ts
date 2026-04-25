@@ -9,9 +9,7 @@ import { promisify } from "node:util";
 
 import {
   formatApprovalCallbackData,
-  formatShellCallbackData,
   parseApprovalCallbackData,
-  parseShellCallbackData,
 } from "./approval.js";
 import { agentStreamKey, streamGroupId } from "./agentMessageStreams.js";
 import { CodexAppServerClient } from "./codexAppServer.js";
@@ -56,10 +54,12 @@ import { TelegramBotApi } from "./telegram.js";
 import {
   escapeTelegramHtml,
   formatApprovalPromptHtml,
+  formatApprovalResolutionHtml,
   formatCommandCompletionHtml,
   formatFileChangeCompletionHtml,
   formatPendingInputActionHtml,
   formatTurnCompletionHtml,
+  formatTurnControlPromptHtml,
   renderAssistantTextHtml,
   splitTelegramChunks,
 } from "./telegramFormatting.js";
@@ -129,7 +129,6 @@ export class CodexAnywhereBridge {
   readonly #sessionOwnership: SessionOwnershipRegistry | null;
   readonly #addBotFn: ((bot: BotRuntimeConfig) => Promise<void>) | null;
   readonly #pendingApprovals = new Map<string, PendingApproval>();
-  readonly #pendingShellCommands = new Map<string, { chatId: number; command: string }>();
   readonly #pendingSessionSwitches = new Map<string, { chatId: number; threadId: string; targetWorkspace: string }>();
   readonly #pendingSessionPages = new Map<string, { chatId: number; global: boolean; cursor: string }>();
   readonly #pendingInteractiveSessions = new Map<string, PendingInteractiveSession>();
@@ -337,9 +336,6 @@ export class CodexAnywhereBridge {
         case "status":
           await this.#sendStatus(message.chat.id);
           return;
-        case "sh":
-          await this.#runShellCommand(message.chat.id, slashCommand.args);
-          return;
         case "omx":
           await this.#handleOmxCommand(message.chat.id, slashCommand.args);
           return;
@@ -447,13 +443,12 @@ export class CodexAnywhereBridge {
         return;
       }
 
-      await this.#resolveApproval(approval, parsed.action);
+      await this.#resolveApproval(approval, parsed.action, callback.message?.message_id ?? null);
       this.#pendingApprovals.delete(parsed.token);
       await this.#telegram.answerCallbackQuery(callback.id, `Recorded: ${parsed.action}`);
       return;
     }
 
-    const shellParsed = parseShellCallbackData(callback.data ?? "");
     const interactiveParsed = parseInteractiveCallbackData(callback.data ?? "");
     const sessionParsed = parseSessionCallbackData(callback.data ?? "");
     const turnControlParsed = parseTurnControlCallbackData(callback.data ?? "");
@@ -473,25 +468,7 @@ export class CodexAnywhereBridge {
       );
       return;
     }
-    if (!shellParsed) {
-      await this.#telegram.answerCallbackQuery(callback.id, "Unknown action");
-      return;
-    }
-    const pendingShell = this.#pendingShellCommands.get(shellParsed.token);
-    if (!pendingShell) {
-      await this.#telegram.answerCallbackQuery(callback.id, "Shell confirmation expired");
-      return;
-    }
-
-    this.#pendingShellCommands.delete(shellParsed.token);
-    if (shellParsed.action === "cancel") {
-      await this.#telegram.answerCallbackQuery(callback.id, "Cancelled");
-      await this.#sendText(pendingShell.chatId, "Cancelled.");
-      return;
-    }
-
-    await this.#telegram.answerCallbackQuery(callback.id, "Running command");
-    await this.#executeShellCommand(pendingShell.chatId, pendingShell.command);
+    await this.#telegram.answerCallbackQuery(callback.id, "Unknown action");
   }
 
   async #handleCodexSlashCommand(chatId: number, name: string, args: string): Promise<void> {
@@ -2145,13 +2122,27 @@ export class CodexAnywhereBridge {
         ],
       ],
     } satisfies JsonObject;
-    const message = await this.#sendText(
-      chatId,
-      hasPendingInput
-        ? "Turn active — steer with your message or queue it for next?"
-        : "Turn active.",
-      replyMarkup,
-    );
+    const text = formatTurnControlPromptHtml(state.pendingTurnInput);
+    if (state.turnControlTurnId === turnId && state.turnControlMessageId !== null) {
+      try {
+        await this.#telegram.editMessageText(
+          chatId,
+          state.turnControlMessageId,
+          text,
+          replyMarkup,
+          "HTML",
+        );
+        await this.#saveState();
+        return;
+      } catch (error) {
+        if (!isTelegramEditMissingError(error)) {
+          throw error;
+        }
+        state.turnControlTurnId = null;
+        state.turnControlMessageId = null;
+      }
+    }
+    const message = await this.#sendHtmlText(chatId, text, replyMarkup);
     state.turnControlTurnId = turnId;
     state.turnControlMessageId = message.message_id;
     await this.#saveState();
@@ -2328,7 +2319,10 @@ export class CodexAnywhereBridge {
         return;
       }
       if (itemType === "commandExecution") {
-        await this.#sendHtmlText(chatId, formatCommandCompletionHtml(item, this.#chatState(chatId).verbose));
+        await this.#sendHtmlText(
+          chatId,
+          formatCommandCompletionHtml(item, this.#chatState(chatId).verbose),
+        );
         return;
       }
       if (itemType === "fileChange") {
@@ -2484,34 +2478,6 @@ export class CodexAnywhereBridge {
     await this.#sendText(chatId, "Interrupting turn…");
   }
 
-  async #runShellCommand(chatId: number, command: string): Promise<void> {
-    if (!command) {
-      await this.#sendText(chatId, "Usage: /sh <command>");
-      return;
-    }
-    const token = randomBytes(4).toString("hex");
-    this.#pendingShellCommands.set(token, { chatId, command });
-    const replyMarkup = {
-      inline_keyboard: [
-        [
-          {
-            text: "Run",
-            callback_data: formatShellCallbackData(token, "run"),
-          },
-          {
-            text: "Cancel",
-            callback_data: formatShellCallbackData(token, "cancel"),
-          },
-        ],
-      ],
-    } satisfies JsonObject;
-    await this.#sendHtmlText(
-      chatId,
-      `<b>Run shell command?</b>\n<code>${escapeTelegramHtml(command)}</code>`,
-      replyMarkup,
-    );
-  }
-
   async #sendTask(chatId: number, text: string, extraParams?: JsonObject): Promise<void> {
     await this.#startTurn(chatId, [{ type: "text", text }], extraParams);
   }
@@ -2582,13 +2548,21 @@ export class CodexAnywhereBridge {
       : "none";
     const lines = [
       `<b>Status</b>`,
-      `workspace  <code>${esc(this.#config.workspaceCwd)}</code>`,
-      `thread  <code>${esc(shortThread)}</code>${state.activeTurnId ? "  ⚡ turn active" : ""}`,
-      `model  <code>${esc(state.model ?? "default")}${state.reasoningEffort ? ` (${state.reasoningEffort})` : ""}</code>`,
-      `fast  <code>${state.serviceTier === "fast" ? "on" : "off"}</code>`,
-      `approval  <code>${esc(state.approvalPolicy ?? "on-request")}</code>`,
-      `sandbox  <code>${esc(state.sandboxMode ?? "workspace-write")}</code>`,
-      `rate limits  ${esc(rateLimits)}`,
+      "",
+      `<b>Workspace</b>`,
+      `<code>${esc(this.#config.workspaceCwd)}</code>`,
+      "",
+      `<b>Thread</b>`,
+      `<code>${esc(shortThread)}</code>${state.activeTurnId ? "  active" : ""}`,
+      "",
+      `<b>Model</b>`,
+      `<code>${esc(state.model ?? "default")}${state.reasoningEffort ? ` (${state.reasoningEffort})` : ""}</code>`,
+      `Fast  <code>${state.serviceTier === "fast" ? "on" : "off"}</code>`,
+      `Approval  <code>${esc(state.approvalPolicy ?? "on-request")}</code>`,
+      `Sandbox  <code>${esc(state.sandboxMode ?? "workspace-write")}</code>`,
+      "",
+      `<b>Rate limits</b>`,
+      esc(rateLimits),
     ];
     await this.#sendHtmlText(chatId, lines.join("\n"));
   }
@@ -2614,6 +2588,7 @@ export class CodexAnywhereBridge {
   async #resolveApproval(
     approval: PendingApproval,
     action: "approve" | "session" | "decline" | "cancel",
+    messageId: number | null,
   ): Promise<void> {
     if (approval.method === "item/permissions/requestApproval") {
       const result =
@@ -2624,7 +2599,7 @@ export class CodexAnywhereBridge {
               scope: action === "session" ? "session" : "turn",
             };
       await this.#codex.respond(approval.requestId, result);
-      await this.#sendText(approval.chatId, formatApprovalFeedback(action));
+      await this.#resolveApprovalCard(approval, action, messageId);
       return;
     }
 
@@ -2637,7 +2612,42 @@ export class CodexAnywhereBridge {
             ? "decline"
             : "cancel";
     await this.#codex.respond(approval.requestId, { decision });
-    await this.#sendText(approval.chatId, formatApprovalFeedback(action));
+    await this.#resolveApprovalCard(approval, action, messageId);
+  }
+
+  async #resolveApprovalCard(
+    approval: PendingApproval,
+    action: "approve" | "session" | "decline" | "cancel",
+    messageId: number | null,
+  ): Promise<void> {
+    await this.#resolveCallbackCardHtml({
+      chatId: approval.chatId,
+      messageId,
+      text: formatApprovalResolutionHtml(approval.method, approval.params, this.#items, action),
+      fallbackLabel: "approval card",
+    });
+  }
+
+  async #resolveCallbackCardHtml({
+    chatId,
+    messageId,
+    text,
+    fallbackLabel,
+  }: {
+    chatId: number;
+    messageId: number | null;
+    text: string;
+    fallbackLabel: string;
+  }): Promise<void> {
+    if (messageId !== null) {
+      try {
+        await this.#telegram.editMessageText(chatId, messageId, text, undefined, "HTML");
+        return;
+      } catch (error) {
+        this.#logRuntimeError(`edit ${fallbackLabel}`, error);
+      }
+    }
+    await this.#sendHtmlText(chatId, text);
   }
 
   async #flushStream(stream: StreamBuffer, force: boolean): Promise<void> {
@@ -2790,18 +2800,6 @@ export class CodexAnywhereBridge {
   #streamsForTurn(threadId: string, turnId: string): StreamBuffer[] {
     const prefix = `${threadId}:${turnId}:`;
     return [...this.#streams.values()].filter((stream) => stream.streamId.startsWith(prefix));
-  }
-
-  async #executeShellCommand(chatId: number, command: string): Promise<void> {
-    const threadId = await this.#resumeThread(chatId, true);
-    await this.#codex.call("thread/shellCommand", {
-      threadId,
-      command,
-    });
-    await this.#sendHtmlText(
-      chatId,
-      `Running <code>${escapeTelegramHtml(command)}</code>`,
-    );
   }
 
   async #applyLocalModelSelection(
@@ -3748,13 +3746,16 @@ function formatThreadStatus(status: JsonObject | undefined): string {
   return activeFlags ? `active (${activeFlags})` : "active";
 }
 
-function formatApprovalFeedback(action: "approve" | "session" | "decline" | "cancel"): string {
-  switch (action) {
-    case "approve": return "✓ Approved.";
-    case "session": return "✓ Approved for session.";
-    case "decline": return "Declined.";
-    case "cancel": return "Cancelled.";
+function isTelegramEditMissingError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
   }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("message to edit not found")
+    || message.includes("message can't be edited")
+    || message.includes("message identifier is not specified")
+  );
 }
 
 function statusBadge(rawStatus: string): string {
@@ -3893,7 +3894,6 @@ function telegramCommands(): TelegramBotCommand[] {
     { command: "interrupt", description: "interrupt the active turn" },
     { command: "esc", description: "interrupt the active turn" },
     { command: "cancel", description: "cancel the active interactive prompt" },
-    { command: "sh", description: "run an explicit shell command" },
     { command: "workspace", description: "show or change the bot workspace" },
     { command: "addbot", description: "add and start another Telegram bot" },
     { command: "omx", description: "run supported oh-my-codex CLI commands" },

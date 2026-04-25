@@ -19,6 +19,13 @@ import type {
 
 class FakeTelegram {
   readonly sentMessages: Array<{ chatId: number; text: string; replyMarkup?: JsonObject; parseMode?: string }> = [];
+  readonly editedMessages: Array<{
+    chatId: number;
+    messageId: number;
+    text: string;
+    replyMarkup?: JsonObject;
+    parseMode?: string;
+  }> = [];
   readonly callbackAnswers: string[] = [];
 
   async getUpdates(): Promise<TelegramUpdate[]> {
@@ -47,7 +54,15 @@ class FakeTelegram {
     return { message_id: this.sentMessages.length };
   }
 
-  async editMessageText(): Promise<void> {}
+  async editMessageText(
+    chatId: number,
+    messageId: number,
+    text: string,
+    replyMarkup?: JsonObject,
+    parseMode?: string,
+  ): Promise<void> {
+    this.editedMessages.push({ chatId, messageId, text, replyMarkup, parseMode });
+  }
 
   async answerCallbackQuery(_id: string, text: string): Promise<void> {
     this.callbackAnswers.push(text);
@@ -523,6 +538,109 @@ test("bridge recreates a fresh thread when resume reports a missing rollout", as
   assert.deepEqual(codex.calls[3]!.params?.input, [
     { type: "text", text: "Commit current changes" },
   ]);
+});
+
+test("bridge edits the active turn control card instead of duplicating it", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-anywhere-turn-control-"));
+  const configPath = path.join(tempDir, "config.json");
+  const statePath = path.join(tempDir, "state.json");
+  await saveConfig(configPath, testConfig());
+  await saveState(statePath, {
+    version: 1,
+    lastUpdateId: null,
+    chats: {
+      "42": {
+        threadId: "thread-1",
+        freshThread: false,
+        activeTurnId: "turn-1",
+        turnControlTurnId: null,
+        turnControlMessageId: null,
+        verbose: false,
+        queueNextArmed: false,
+        queuedTurnInput: null,
+        pendingTurnInput: null,
+        pendingMention: null,
+        model: null,
+        reasoningEffort: null,
+        personality: null,
+        collaborationModeName: null,
+        collaborationMode: null,
+        serviceTier: null,
+        approvalPolicy: null,
+        lastAssistantMessage: null,
+      },
+    },
+  });
+
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  codex.call = async function (method: string, params?: JsonObject): Promise<JsonObject> {
+    this.calls.push({ method, params });
+    if (method === "thread/read") {
+      return {
+        thread: {
+          id: "thread-1",
+          status: { type: "active" },
+          turns: [{ id: "turn-1", status: "inProgress" }],
+        },
+      };
+    }
+    throw new Error(`unexpected codex call: ${method}`);
+  };
+  const bridge = new CodexAnywhereBridge(testConfig(), configPath, statePath, {
+    telegram,
+    codex,
+    initialState: await loadState(statePath),
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("first pending"));
+  await bridge.handleUpdateForTest(telegramMessageUpdate("second pending <ok>"));
+
+  assert.equal(telegram.sentMessages.length, 1);
+  assert.equal(telegram.editedMessages.length, 1);
+  assert.equal(telegram.sentMessages[0]!.parseMode, "HTML");
+  assert.equal(telegram.editedMessages[0]!.parseMode, "HTML");
+  assert.match(telegram.sentMessages[0]!.text, /first pending/);
+  assert.match(telegram.editedMessages[0]!.text, /second pending &lt;ok&gt;/);
+  assert.equal(telegram.editedMessages[0]!.messageId, 1);
+
+  const savedState = await loadState(statePath);
+  assert.equal(savedState.chats["42"]?.turnControlMessageId, 1);
+  assert.equal(savedState.chats["42"]?.pendingTurnInput?.[0]?.text, "second pending <ok>");
+});
+
+test("/status renders a compact HTML status card", async () => {
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  codex.call = async function (method: string, params?: JsonObject): Promise<JsonObject> {
+    this.calls.push({ method, params });
+    if (method === "account/rateLimits/read") {
+      return { rateLimits: { primary: { usedPercent: 25 } } };
+    }
+    throw new Error(`unexpected codex call: ${method}`);
+  };
+  const bridge = new CodexAnywhereBridge(
+    testConfig({ workspaceCwd: "/tmp/codex-anywhere-workspace" }),
+    "/tmp/config.json",
+    "/tmp/state.json",
+    {
+      telegram,
+      codex,
+      initialState: testState(),
+    },
+  );
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("/status"));
+
+  assert.equal(telegram.sentMessages.length, 1);
+  assert.equal(telegram.sentMessages[0]!.parseMode, "HTML");
+  assert.match(telegram.sentMessages[0]!.text, /<b>Status<\/b>/);
+  assert.match(telegram.sentMessages[0]!.text, /<b>Workspace<\/b>\n<code>\/tmp\/codex-anywhere-workspace<\/code>/);
+  assert.match(telegram.sentMessages[0]!.text, /<b>Thread<\/b>\n<code>none<\/code>/);
+  assert.match(telegram.sentMessages[0]!.text, /<b>Model<\/b>\n<code>default<\/code>/);
+  assert.match(telegram.sentMessages[0]!.text, /Fast  <code>off<\/code>/);
+  assert.match(telegram.sentMessages[0]!.text, /Approval  <code>on-request<\/code>/);
+  assert.match(telegram.sentMessages[0]!.text, /<b>Rate limits<\/b>\n75% remaining/);
 });
 
 test("/resume lists only sessions for the current workspace", async () => {

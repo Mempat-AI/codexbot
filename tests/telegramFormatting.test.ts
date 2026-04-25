@@ -4,10 +4,12 @@ import test from "node:test";
 import {
   escapeTelegramHtml,
   formatApprovalPromptHtml,
+  formatApprovalResolutionHtml,
   formatCommandCompletionHtml,
   formatFileChangeCompletionHtml,
   formatPendingInputActionHtml,
   formatTurnCompletionHtml,
+  formatTurnControlPromptHtml,
   renderAssistantTextHtml,
 } from "../src/telegramFormatting.js";
 
@@ -88,6 +90,19 @@ test("formatApprovalPromptHtml omits empty reason", () => {
   assert.doesNotMatch(html, /reason/);
 });
 
+test("formatApprovalResolutionHtml shows final state without losing prompt context", () => {
+  const html = formatApprovalResolutionHtml(
+    "item/commandExecution/requestApproval",
+    { command: "cat <secret>", cwd: "/tmp" },
+    new Map(),
+    "approve",
+  );
+
+  assert.match(html, /<b>Approved command<\/b>/);
+  assert.match(html, /<code>cat &lt;secret&gt;<\/code>/);
+  assert.doesNotMatch(html, /Approve command\?/);
+});
+
 test("formatTurnCompletionHtml returns null on success", () => {
   const result = formatTurnCompletionHtml("completed", null);
   assert.equal(result, null);
@@ -126,6 +141,18 @@ test("formatPendingInputActionHtml shows attachments summary", () => {
 test("formatPendingInputActionHtml shows armed state without preview", () => {
   const html = formatPendingInputActionHtml("armed");
   assert.match(html, /<b>Queue Next armed<\/b>/);
+});
+
+test("formatTurnControlPromptHtml includes pending message context", () => {
+  const html = formatTurnControlPromptHtml([
+    { type: "text", text: "please add tests <now>" },
+    { type: "localImage", path: "/tmp/screenshot.png" },
+  ]);
+
+  assert.match(html, /<b>Turn active<\/b>/);
+  assert.match(html, /Pending message:/);
+  assert.match(html, /please add tests &lt;now&gt;/);
+  assert.match(html, /\+1 image/);
 });
 
 test("renderAssistantTextHtml renders inline code spans", () => {

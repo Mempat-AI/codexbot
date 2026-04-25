@@ -39,6 +39,19 @@ export function formatApprovalPromptHtml(
   return lines.join("\n");
 }
 
+export function formatApprovalResolutionHtml(
+  method: string,
+  params: JsonObject,
+  items: Map<string, JsonObject>,
+  action: "approve" | "session" | "decline" | "cancel",
+): string {
+  const original = formatApprovalPromptHtml(method, params, items).split("\n").slice(1);
+  return [
+    `<b>${escapeTelegramHtml(approvalResolutionTitle(method, action))}</b>`,
+    ...original,
+  ].join("\n");
+}
+
 export function formatCommandCompletionHtml(item: JsonObject, verbose = false): string {
   const command = asString(item.command) ?? "<unknown>";
   const status = asString(item.status) ?? "unknown";
@@ -120,6 +133,20 @@ export function formatPendingInputActionHtml(
   const lines = [`<b>${title}</b>`];
   if (summary.preview) {
     lines.push(escapeTelegramHtml(summary.preview));
+  }
+  if (summary.attachments) {
+    lines.push(`+${escapeTelegramHtml(summary.attachments)}`);
+  }
+  return lines.join("\n");
+}
+
+export function formatTurnControlPromptHtml(input?: JsonObject[] | null): string {
+  const summary = summarizeInput(input ?? []);
+  const lines = ["<b>Turn active</b>"];
+  if (summary.preview) {
+    lines.push("Pending message:", escapeTelegramHtml(summary.preview));
+  } else {
+    lines.push("Use Queue Next to hold your next message, or interrupt the current turn.");
   }
   if (summary.attachments) {
     lines.push(`+${escapeTelegramHtml(summary.attachments)}`);
@@ -216,6 +243,24 @@ export function escapeTelegramHtml(text: string): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function approvalResolutionTitle(
+  method: string,
+  action: "approve" | "session" | "decline" | "cancel",
+): string {
+  const noun =
+    method === "item/commandExecution/requestApproval"
+      ? "command"
+      : method === "item/fileChange/requestApproval"
+        ? "file changes"
+        : "permissions";
+  switch (action) {
+    case "approve": return `Approved ${noun}`;
+    case "session": return `Approved ${noun} for session`;
+    case "decline": return `Declined ${noun}`;
+    case "cancel": return `Cancelled ${noun}`;
+  }
 }
 
 function collectChangePaths(item: JsonObject | undefined): string[] {

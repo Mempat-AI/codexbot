@@ -78,10 +78,16 @@ export function buildModelInteractiveSession(
       }
       const isDefault = (entry as JsonObject).isDefault === true ? " (default)" : "";
       const current = state.model === model ? " (current)" : "";
-      return { label: `${model}${isDefault}${current}`, value: model };
+      return {
+        label: `${model}${isDefault}${current}`,
+        value: model,
+        sortKey: rankModelForTelegramPicker(model, (entry as JsonObject).isDefault === true),
+      };
     })
-    .filter((entry): entry is { label: string; value: string } => Boolean(entry))
-    .slice(0, 20);
+    .filter((entry): entry is { label: string; value: string; sortKey: number } => Boolean(entry))
+    .sort((left, right) => left.sortKey - right.sortKey || left.value.localeCompare(right.value))
+    .slice(0, 20)
+    .map(({ label, value }) => ({ label, value }));
 
   if (options.length === 0) {
     return null;
@@ -102,6 +108,18 @@ export function buildModelInteractiveSession(
     ],
     meta: { command: "model", followUpAdded: false },
   };
+}
+
+function rankModelForTelegramPicker(model: string, isDefault: boolean): number {
+  const normalized = model.toLowerCase();
+  if (normalized === "gpt-5.5") return 0;
+  if (normalized.startsWith("gpt-5.5")) return 1;
+  if (normalized === "gpt-5.4") return isDefault ? 2 : 3;
+  if (normalized.startsWith("gpt-5.4")) return 4;
+  if (normalized.includes("codex")) return 5;
+  if (normalized.startsWith("gpt-5")) return 6;
+  if (isDefault) return 7;
+  return 10;
 }
 
 export function buildFastInteractiveSession(state: ChatSessionState): LocalInteractiveSessionSpec {
