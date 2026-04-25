@@ -643,6 +643,22 @@ test("/status renders a compact HTML status card", async () => {
   assert.match(telegram.sentMessages[0]!.text, /<b>Rate limits<\/b>\n75% remaining/);
 });
 
+test("/version reports the installed package version", async () => {
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
+    telegram,
+    codex,
+    initialState: testState(),
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("/version"));
+
+  assert.equal(telegram.sentMessages.length, 1);
+  assert.equal(telegram.sentMessages[0]!.parseMode, undefined);
+  assert.match(telegram.sentMessages[0]!.text, /^codex-anywhere \d+\.\d+\.\d+/);
+});
+
 test("/resume lists only sessions for the current workspace", async () => {
   const telegram = new FakeTelegram();
   const codex = new FakeCodex();

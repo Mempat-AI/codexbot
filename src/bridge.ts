@@ -7,6 +7,8 @@ import { clearInterval, setInterval } from "node:timers";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 
+import packageJson from "../package.json" with { type: "json" };
+
 import {
   formatApprovalCallbackData,
   parseApprovalCallbackData,
@@ -335,6 +337,9 @@ export class CodexAnywhereBridge {
           return;
         case "status":
           await this.#sendStatus(message.chat.id);
+          return;
+        case "version":
+          await this.#sendVersion(message.chat.id);
           return;
         case "omx":
           await this.#handleOmxCommand(message.chat.id, slashCommand.args);
@@ -2567,6 +2572,10 @@ export class CodexAnywhereBridge {
     await this.#sendHtmlText(chatId, lines.join("\n"));
   }
 
+  async #sendVersion(chatId: number): Promise<void> {
+    await this.#sendText(chatId, `codex-anywhere ${packageJson.version}`);
+  }
+
   async #sendApprovalPrompt(chatId: number, token: string, method: string, params: JsonObject): Promise<void> {
     this.#stopTypingIndicator(chatId);
     const text = formatApprovalPromptHtml(method, params, this.#items);
@@ -3888,6 +3897,7 @@ function telegramCommands(): TelegramBotCommand[] {
   return [
     { command: "help", description: "show bot and Codex slash commands" },
     { command: "status", description: "show current thread and model settings" },
+    { command: "version", description: "show the installed codex-anywhere version" },
     { command: "new", description: "start a fresh Codex thread" },
     { command: "resume", description: "browse and continue sessions in this workspace" },
     { command: "continue", description: "browse all sessions or continue by exact id" },
