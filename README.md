@@ -94,6 +94,10 @@ Your bot is ready. Try `/help` to see available commands, or just send a task to
 - if the target session belongs to another workspace, Codex Anywhere asks before switching workspace
 - after takeover, Codex Anywhere shows a compact preview of the last 3 turns to restore context
 
+**Reload the current session:**
+- send `/reload` to pull the latest context for the currently bound session
+- `/reload` never browses, switches, or selects another session
+
 **Start a new session:**
 - send `/new`, or just send a task like `fix tests`
 
@@ -138,6 +142,7 @@ Telegram-native:
 | `/addbot` | Add and start another Telegram bot from chat |
 | `/resume` | Browse and continue sessions in the current workspace |
 | `/continue [session-id]` | Browse all sessions globally or continue by exact session id |
+| `/reload` | Pull the latest context for the current session |
 | `/verbose [on\|off\|status]` | Toggle detailed tool/file output cards |
 | `/omx [args]` | Run [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) CLI commands from Telegram |
 | `/computer <task>` | Run a task through the bundled Computer Use plugin |
@@ -145,7 +150,7 @@ Telegram-native:
 
 Codex slash commands supported through the bridge:
 
-`/start` `/help` `/new` `/resume` `/continue` `/interrupt` `/cancel` `/status` `/workspace` `/addbot` `/omx` `/computer` `/model` `/fast` `/personality` `/permissions` `/sandbox` `/plan` `/collab` `/agent` `/subagents` `/review` `/rename` `/fork` `/compact` `/clear` `/diff` `/copy` `/mention` `/skills` `/mcp` `/apps` `/plugins` `/feedback` `/experimental` `/rollout` `/logout` `/quit` `/exit` `/stop`
+`/start` `/help` `/new` `/resume` `/continue` `/reload` `/interrupt` `/cancel` `/status` `/workspace` `/addbot` `/omx` `/computer` `/model` `/fast` `/personality` `/permissions` `/sandbox` `/plan` `/collab` `/agent` `/subagents` `/review` `/rename` `/fork` `/compact` `/clear` `/diff` `/copy` `/mention` `/skills` `/mcp` `/apps` `/plugins` `/feedback` `/experimental` `/rollout` `/logout` `/quit` `/exit` `/stop`
 
 ## Development
 

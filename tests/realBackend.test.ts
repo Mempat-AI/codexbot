@@ -239,10 +239,11 @@ test(
       const initialThreadId = stateAfterNew.chats["42"]?.threadId;
       assert.ok(initialThreadId, "expected initial thread id after /new");
       await expectCommand(8, `/continue ${initialThreadId}`, /Took over session/);
-      await expectCommand(9, "/interrupt", /No active turn to interrupt/);
-      await expectCommand(10, "/esc", /No active turn to interrupt/);
-      await expectCommand(11, "/ese", /No active turn to interrupt/);
-      await expectCommand(12, "/cancel", /No active interactive prompt/);
+      await expectCommand(9, "/reload", /Session reloaded/);
+      await expectCommand(10, "/interrupt", /No active turn to interrupt/);
+      await expectCommand(11, "/esc", /No active turn to interrupt/);
+      await expectCommand(12, "/ese", /No active turn to interrupt/);
+      await expectCommand(13, "/cancel", /No active interactive prompt/);
       await expectCommand(14, "/model status", /Available models:/);
       await expectCommand(15, "/fast status", /Fast mode is/);
       await expectCommand(16, "/personality status", /Personality:/);

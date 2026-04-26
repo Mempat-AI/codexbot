@@ -325,6 +325,9 @@ export class CodexAnywhereBridge {
         case "resume":
           await this.#showSessions(message.chat.id, { global: false });
           return;
+        case "reload":
+          await this.#reloadCurrentThread(message.chat.id, slashCommand.args);
+          return;
         case "interrupt":
           await this.#interruptTurn(message.chat.id);
           return;
@@ -531,6 +534,9 @@ export class CodexAnywhereBridge {
         return;
       case "continue":
         await this.#handleContinueCommand(chatId, args);
+        return;
+      case "reload":
+        await this.#reloadCurrentThread(chatId, args);
         return;
       case "agent":
       case "subagents":
@@ -2087,6 +2093,60 @@ export class CodexAnywhereBridge {
     return lines.join("\n");
   }
 
+  async #reloadCurrentThread(chatId: number, args: string): Promise<void> {
+    if (args.trim()) {
+      await this.#sendText(chatId, "Usage: /reload");
+      return;
+    }
+
+    const state = this.#chatState(chatId);
+    const threadId = state.threadId;
+    if (!threadId) {
+      await this.#sendText(chatId, "No current thread. Use /resume, /continue, or send a task first.");
+      return;
+    }
+
+    let thread: JsonObject | undefined;
+    try {
+      const response = await this.#codex.call("thread/read", {
+        threadId,
+        includeTurns: true,
+      });
+      thread = response.thread as JsonObject | undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.#sendText(chatId, `Failed to reload current thread: ${message}`);
+      return;
+    }
+
+    if (!thread || (thread.status as JsonObject | undefined)?.type === "notLoaded") {
+      await this.#sendText(chatId, `Current thread is unavailable: ${threadId}`);
+      return;
+    }
+
+    state.activeTurnId = reconcileActiveTurnIdFromThreadRead(thread, state.activeTurnId);
+    state.freshThread = false;
+    const lastAssistantMessage = findLastAssistantMessage(thread);
+    if (lastAssistantMessage) {
+      state.lastAssistantMessage = lastAssistantMessage;
+    }
+    await this.#saveState();
+
+    const preview = formatRecentTurnsPreview(thread, 3);
+    const status = state.activeTurnId ? `Active turn: <code>${escapeTelegramHtml(state.activeTurnId)}</code>` : "Thread is idle.";
+    const lines = [
+      "<b>Session reloaded</b>",
+      `Thread: <code>${escapeTelegramHtml(threadId)}</code>`,
+      status,
+    ];
+    if (preview) {
+      lines.push("", preview);
+    } else {
+      lines.push("", "No recent history found.");
+    }
+    await this.#sendHtmlText(chatId, lines.join("\n"));
+  }
+
   async #sendRolloutPath(chatId: number): Promise<void> {
     const state = this.#chatState(chatId);
     if (!state.threadId) {
@@ -3493,6 +3553,21 @@ function extractTurnAssistantText(turn: JsonObject): string | null {
   return null;
 }
 
+function findLastAssistantMessage(thread: JsonObject | undefined): string | null {
+  const turns = Array.isArray(thread?.turns) ? thread.turns : [];
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (!turn || typeof turn !== "object" || Array.isArray(turn)) {
+      continue;
+    }
+    const text = extractTurnAssistantText(turn as JsonObject);
+    if (text) {
+      return text;
+    }
+  }
+  return null;
+}
+
 function truncatePreview(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   return normalized.length > 160 ? `${normalized.slice(0, 160)}…` : normalized;
@@ -3901,6 +3976,7 @@ function telegramCommands(): TelegramBotCommand[] {
     { command: "new", description: "start a fresh Codex thread" },
     { command: "resume", description: "browse and continue sessions in this workspace" },
     { command: "continue", description: "browse all sessions or continue by exact id" },
+    { command: "reload", description: "reload the current thread context" },
     { command: "interrupt", description: "interrupt the active turn" },
     { command: "esc", description: "interrupt the active turn" },
     { command: "cancel", description: "cancel the active interactive prompt" },

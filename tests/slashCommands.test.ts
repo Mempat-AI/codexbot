@@ -24,6 +24,7 @@ test("parseTelegramSlashCommand returns null for plain text", () => {
 test("recognized Codex slash commands include supported and unsupported names", () => {
   assert.equal(isRecognizedCodexSlashCommand("model"), true);
   assert.equal(isRecognizedCodexSlashCommand("plan"), true);
+  assert.equal(isRecognizedCodexSlashCommand("reload"), true);
   assert.equal(isRecognizedCodexSlashCommand("version"), true);
   assert.equal(isRecognizedCodexSlashCommand("definitely-not-a-command"), false);
 });
@@ -62,4 +63,8 @@ test("codexSlashHelpText mentions /computer plugin support", () => {
 
 test("codexSlashHelpText mentions /version support", () => {
   assert.match(codexSlashHelpText(), /\/version/);
+});
+
+test("codexSlashHelpText mentions /reload support", () => {
+  assert.match(codexSlashHelpText(), /\/reload/);
 });
