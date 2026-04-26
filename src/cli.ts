@@ -2,6 +2,7 @@
 
 import process from "node:process";
 
+import packageJson from "../package.json" with { type: "json" };
 import { bootstrapCodexAnywhere } from "./app.js";
 import { addBotToCodexAnywhereConfig } from "./configuration.js";
 import { runAddBotWizard } from "./onboarding.js";
@@ -10,6 +11,11 @@ import { runBackgroundServiceCommand } from "./service.js";
 async function main(): Promise<void> {
   const wantsHelp = process.argv.includes("--help") || process.argv.includes("-h");
   const command = process.argv[2] ?? "connect";
+  const wantsVersion = ["version", "--version", "-v", "—version"].includes(command);
+  if (wantsVersion) {
+    printVersion();
+    return;
+  }
   if (wantsHelp || command === "help") {
     printHelp();
     return;
@@ -35,6 +41,7 @@ async function main(): Promise<void> {
     case "install-service":
     case "start-service":
     case "stop-service":
+    case "restart-service":
     case "service-status":
     case "uninstall-service":
       await runBackgroundServiceCommand(command, {
@@ -56,8 +63,10 @@ Usage:
   codex-anywhere install-service
   codex-anywhere start-service
   codex-anywhere stop-service
+  codex-anywhere restart-service
   codex-anywhere service-status
   codex-anywhere uninstall-service
+  codex-anywhere version
 
 Behavior:
   - connect runs guided setup on first launch and starts the Telegram bridge
@@ -66,6 +75,10 @@ Behavior:
   - Linux service commands manage a user-level systemd background service
   - config/state live under CODEX_ANYWHERE_HOME or your user config directory
 `);
+}
+
+function printVersion(): void {
+  console.log(`codex-anywhere ${packageJson.version}`);
 }
 
 void main().catch((error) => {

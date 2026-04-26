@@ -34,6 +34,7 @@ const SUPPORTED_CODEX_COMMANDS = new Set([
   "plugins",
   "quit",
   "rename",
+  "reload",
   "resume",
   "review",
   "rollout",
@@ -41,6 +42,7 @@ const SUPPORTED_CODEX_COMMANDS = new Set([
   "status",
   "stop",
   "subagents",
+  "upgrade",
   "verbose",
   "version",
   "clean",
@@ -132,6 +134,7 @@ export function isTaskBlockingSlashCommand(name: string): boolean {
     "rename",
     "resume",
     "review",
+    "upgrade",
   ]).has(name);
 }
 
@@ -154,10 +157,10 @@ export function normalizeReasoningEffort(value: string): string | null {
 export function codexSlashHelpText(): string {
   return [
     "Codex Anywhere commands:",
-    "/start, /help, /new, /resume, /continue, /interrupt, /cancel, /status, /version, /workspace <path>, /addbot, /omx <args>, /computer <task>",
+    "/start, /help, /new, /resume, /continue, /reload, /interrupt, /cancel, /status, /version, /upgrade, /workspace <path>, /addbot, /omx <args>, /computer <task>",
     "Telegram will also show the registered command list when you type /",
     "",
-    "Codex slash commands supported in Telegram:",
+    "Bridge-managed commands and bridged Codex slash commands:",
     "/model [status|reset|<model> [effort]]",
     "/fast [status|on|off]",
     "/personality [friendly|pragmatic|none]",
@@ -166,8 +169,7 @@ export function codexSlashHelpText(): string {
     "/plan [task]",
     "/collab [mode]",
     "/agent, /subagents",
-    "/resume",
-    "/continue [session-id]",
+    "/resume, /continue [session-id], /reload, /upgrade",
     "/review [base <branch>|commit <sha>|<custom instructions>]",
     "/rename <name>, /fork, /compact, /clear",
     "/diff, /copy, /mention <query>, /skills, /mcp, /apps, /plugins, /feedback, /verbose [on|off|status]",
