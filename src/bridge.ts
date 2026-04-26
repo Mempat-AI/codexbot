@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import { clearInterval, setInterval } from "node:timers";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
@@ -85,7 +86,13 @@ import type {
   TelegramUpdate,
 } from "./types.js";
 
-const execFileAsync = promisify(execFile);
+type ExecFileRunner = (
+  file: string,
+  args: string[],
+  options?: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number; maxBuffer?: number },
+) => Promise<{ stdout: string; stderr: string }>;
+
+const execFileAsync = promisify(execFile) as ExecFileRunner;
 const COMPUTER_USE_PLUGIN_NAME = "Computer Use";
 const COMPUTER_USE_PLUGIN_PATH = "plugin://computer-use@openai-bundled";
 const COMPUTER_USE_MENTION_TOKEN = "@computer-use";
@@ -117,6 +124,7 @@ export interface CodexAnywhereBridgeDeps {
   persistConfig?: (config: BotRuntimeConfig) => Promise<void>;
   sessionOwnership?: SessionOwnershipRegistry;
   addBot?: (bot: BotRuntimeConfig) => Promise<void>;
+  execFile?: ExecFileRunner;
 }
 
 export class CodexAnywhereBridge {
@@ -130,6 +138,7 @@ export class CodexAnywhereBridge {
   readonly #persistConfigFn: (config: BotRuntimeConfig) => Promise<void>;
   readonly #sessionOwnership: SessionOwnershipRegistry | null;
   readonly #addBotFn: ((bot: BotRuntimeConfig) => Promise<void>) | null;
+  readonly #execFile: ExecFileRunner;
   readonly #pendingApprovals = new Map<string, PendingApproval>();
   readonly #pendingSessionSwitches = new Map<string, { chatId: number; threadId: string; targetWorkspace: string }>();
   readonly #pendingSessionPages = new Map<string, { chatId: number; global: boolean; cursor: string }>();
@@ -171,6 +180,7 @@ export class CodexAnywhereBridge {
     });
     this.#sessionOwnership = deps?.sessionOwnership ?? null;
     this.#addBotFn = deps?.addBot ?? null;
+    this.#execFile = deps?.execFile ?? execFileAsync;
     this.#hasInitialState = Boolean(deps?.initialState);
     if (deps?.initialState) {
       this.#state = deps.initialState;
@@ -343,6 +353,9 @@ export class CodexAnywhereBridge {
           return;
         case "version":
           await this.#sendVersion(message.chat.id);
+          return;
+        case "upgrade":
+          await this.#upgradeSelf(message.chat.id, slashCommand.args);
           return;
         case "omx":
           await this.#handleOmxCommand(message.chat.id, slashCommand.args);
@@ -2114,13 +2127,39 @@ export class CodexAnywhereBridge {
       });
       thread = response.thread as JsonObject | undefined;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.#sendText(chatId, `Failed to reload current thread: ${message}`);
-      return;
+      if (isThreadNotMaterializedError(error)) {
+        try {
+          thread = await this.#materializeCurrentThreadForReload(state, threadId);
+        } catch (materializeError) {
+          const message = materializeError instanceof Error ? materializeError.message : String(materializeError);
+          await this.#sendText(chatId, `Failed to reload current thread: ${message}`);
+          return;
+        }
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        await this.#sendText(chatId, `Failed to reload current thread: ${message}`);
+        return;
+      }
+    }
+
+    if ((thread?.status as JsonObject | undefined)?.type === "notLoaded") {
+      try {
+        thread = await this.#materializeCurrentThreadForReload(state, threadId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await this.#sendText(chatId, `Failed to reload current thread: ${message}`);
+        return;
+      }
     }
 
     if (!thread || (thread.status as JsonObject | undefined)?.type === "notLoaded") {
-      await this.#sendText(chatId, `Current thread is unavailable: ${threadId}`);
+      await this.#sendText(
+        chatId,
+        [
+          `Current stored thread could not be loaded: ${threadId}`,
+          "Telegram only has a saved thread id here. Use /resume or /continue to select a loadable session, or send a task to start from the current chat.",
+        ].join("\n"),
+      );
       return;
     }
 
@@ -2145,6 +2184,28 @@ export class CodexAnywhereBridge {
       lines.push("", "No recent history found.");
     }
     await this.#sendHtmlText(chatId, lines.join("\n"));
+  }
+
+  async #materializeCurrentThreadForReload(
+    state: ChatSessionState,
+    threadId: string,
+  ): Promise<JsonObject | undefined> {
+    try {
+      await this.#codex.call("thread/resume", {
+        threadId,
+        ...threadSessionOverrides(this.#config, state),
+      });
+    } catch (error) {
+      if (!isMissingRolloutResumeError(error)) {
+        throw error;
+      }
+      return undefined;
+    }
+    const response = await this.#codex.call("thread/read", {
+      threadId,
+      includeTurns: true,
+    });
+    return response.thread as JsonObject | undefined;
   }
 
   async #sendRolloutPath(chatId: number): Promise<void> {
@@ -2634,6 +2695,76 @@ export class CodexAnywhereBridge {
 
   async #sendVersion(chatId: number): Promise<void> {
     await this.#sendText(chatId, `codex-anywhere ${packageJson.version}`);
+  }
+
+  async #upgradeSelf(chatId: number, args: string): Promise<void> {
+    if (args.trim()) {
+      await this.#sendText(chatId, "Usage: /upgrade");
+      return;
+    }
+
+    const state = this.#chatState(chatId);
+    if (state.activeTurnId) {
+      await this.#reconcileActiveTurnState(chatId);
+    }
+    if (state.activeTurnId) {
+      await this.#sendText(chatId, "/upgrade is disabled while a task is in progress.");
+      return;
+    }
+
+    const startLines = [
+      "<b>Upgrade started</b>",
+      "Installing <code>codex-anywhere@latest</code> with npm.",
+      "If installation succeeds, the background service will restart.",
+    ];
+    if (isSourceRuntime()) {
+      startLines.push(
+        "",
+        "This service is currently running from a source checkout, so the global npm upgrade may not change this service until that checkout is updated.",
+      );
+    }
+    await this.#sendHtmlText(
+      chatId,
+      startLines.join("\n"),
+    );
+
+    try {
+      const install = await this.#execFile(
+        "npm",
+        ["install", "-g", "codex-anywhere@latest"],
+        {
+          cwd: this.#config.workspaceCwd,
+          env: process.env,
+          timeout: 120_000,
+          maxBuffer: 1024 * 1024,
+        },
+      );
+      const summary = summarizeUpgradeOutput(install.stdout, install.stderr);
+      await this.#sendHtmlText(
+        chatId,
+        [
+          "<b>Upgrade installed</b>",
+          `<code>${escapeTelegramHtml(summary)}</code>`,
+          "Restarting Codex Anywhere now. Send /version after a few seconds to confirm.",
+        ].join("\n"),
+      );
+      await this.#execFile("codex-anywhere", ["restart-service"], {
+        cwd: this.#config.workspaceCwd,
+        env: process.env,
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.#sendHtmlText(
+        chatId,
+        [
+          "<b>Upgrade failed</b>",
+          `<code>${escapeTelegramHtml(message)}</code>`,
+          "Run <code>npm install -g codex-anywhere@latest</code> and restart the service manually.",
+        ].join("\n"),
+      );
+    }
   }
 
   async #sendApprovalPrompt(chatId: number, token: string, method: string, params: JsonObject): Promise<void> {
@@ -3973,6 +4104,7 @@ function telegramCommands(): TelegramBotCommand[] {
     { command: "help", description: "show bot and Codex slash commands" },
     { command: "status", description: "show current thread and model settings" },
     { command: "version", description: "show the installed codex-anywhere version" },
+    { command: "upgrade", description: "upgrade codex-anywhere to latest" },
     { command: "new", description: "start a fresh Codex thread" },
     { command: "resume", description: "browse and continue sessions in this workspace" },
     { command: "continue", description: "browse all sessions or continue by exact id" },
@@ -4012,6 +4144,18 @@ function telegramCommands(): TelegramBotCommand[] {
     { command: "quit", description: "log out of Codex" },
     { command: "stop", description: "stop background terminals" },
   ];
+}
+
+function isSourceRuntime(): boolean {
+  return process.argv.some((arg) => /(?:^|[/\\])src[/\\]cli\.ts$/.test(arg));
+}
+
+function summarizeUpgradeOutput(stdout: string, stderr: string): string {
+  const lines = `${stdout}\n${stderr}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.slice(-6).join("\n") || "npm install completed";
 }
 
 function buildToolInteractiveStep(

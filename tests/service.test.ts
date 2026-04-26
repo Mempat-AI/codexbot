@@ -297,6 +297,72 @@ test("install-service on linux writes a user unit and enables it", async () => {
   assert.match(savedLogs.join("\n"), /Installed systemd user service/);
 });
 
+test("restart-service on macOS reboots the existing LaunchAgent", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-anywhere-service-restart-"));
+  const homeDir = path.join(tempDir, "home");
+  const repoDir = path.join(tempDir, "repo");
+  const storageRoot = path.join(tempDir, "storage");
+  const storagePaths = {
+    configPath: path.join(storageRoot, "config.json"),
+    statePath: path.join(storageRoot, "state.json"),
+  };
+  await fs.mkdir(path.join(repoDir, "dist"), { recursive: true });
+  await fs.writeFile(path.join(repoDir, "dist", "cli.js"), "// dist\n", "utf8");
+  await fs.mkdir(path.join(homeDir, "Library", "LaunchAgents"), { recursive: true });
+
+  const spec = buildMacosLaunchAgentSpec({
+    repoCwd: repoDir,
+    storageRoot,
+    homeDir,
+    uid: 501,
+    pathEnv: "/opt/homebrew/bin:/usr/bin:/bin",
+    programArguments: ["/opt/homebrew/bin/node", path.join(repoDir, "dist", "cli.js"), "connect"],
+  });
+  await fs.writeFile(spec.plistPath, renderLaunchAgentPlist(spec), "utf8");
+
+  const launchctlCalls: string[][] = [];
+  const savedLogs: string[] = [];
+
+  await runBackgroundServiceCommand("restart-service", {
+    cwd: repoDir,
+    env: {
+      PATH: "/opt/homebrew/bin:/usr/bin:/bin",
+      HOME: homeDir,
+      USER: "alice",
+    },
+    platform: "darwin",
+    packageRoot: repoDir,
+    homeDir,
+    uid: 501,
+    storagePaths,
+    nodePath: "/opt/homebrew/bin/node",
+    loadConfig: async () => ({
+      version: 1,
+      telegramBotToken: "token",
+      workspaceCwd: "/Users/alice/workspace",
+      ownerUserId: null,
+      pollTimeoutSeconds: 20,
+      streamEditIntervalMs: 1500,
+    }),
+    execFile: async (file, args) => {
+      assert.equal(file, "launchctl");
+      launchctlCalls.push(args);
+      return { stdout: "", stderr: "" };
+    },
+    log: (message) => {
+      savedLogs.push(message);
+    },
+  });
+
+  assert.deepEqual(launchctlCalls, [
+    ["enable", spec.serviceTarget],
+    ["bootout", spec.domainTarget, spec.plistPath],
+    ["bootstrap", spec.domainTarget, spec.plistPath],
+    ["kickstart", "-k", spec.serviceTarget],
+  ]);
+  assert.match(savedLogs.join("\n"), /Restarted LaunchAgent/);
+});
+
 test("service-status lists configured multi-bot definitions", async () => {
   const logs: string[] = [];
 

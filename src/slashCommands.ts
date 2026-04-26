@@ -42,6 +42,7 @@ const SUPPORTED_CODEX_COMMANDS = new Set([
   "status",
   "stop",
   "subagents",
+  "upgrade",
   "verbose",
   "version",
   "clean",
@@ -133,6 +134,7 @@ export function isTaskBlockingSlashCommand(name: string): boolean {
     "rename",
     "resume",
     "review",
+    "upgrade",
   ]).has(name);
 }
 
@@ -155,7 +157,7 @@ export function normalizeReasoningEffort(value: string): string | null {
 export function codexSlashHelpText(): string {
   return [
     "Codex Anywhere commands:",
-    "/start, /help, /new, /resume, /continue, /reload, /interrupt, /cancel, /status, /version, /workspace <path>, /addbot, /omx <args>, /computer <task>",
+    "/start, /help, /new, /resume, /continue, /reload, /interrupt, /cancel, /status, /version, /upgrade, /workspace <path>, /addbot, /omx <args>, /computer <task>",
     "Telegram will also show the registered command list when you type /",
     "",
     "Codex slash commands supported in Telegram:",
@@ -173,7 +175,7 @@ export function codexSlashHelpText(): string {
     "/review [base <branch>|commit <sha>|<custom instructions>]",
     "/rename <name>, /fork, /compact, /clear",
     "/diff, /copy, /mention <query>, /skills, /mcp, /apps, /plugins, /feedback, /verbose [on|off|status]",
-    "/experimental [status|<feature> on|off], /rollout, /version, /logout, /quit, /exit, /stop",
+    "/experimental [status|<feature> on|off], /rollout, /version, /upgrade, /logout, /quit, /exit, /stop",
     "/esc (/ese alias) to interrupt the current turn",
     "/omx [args] to run supported oh-my-codex CLI commands",
     "/computer <task> to run a Computer Use task through the bundled plugin",

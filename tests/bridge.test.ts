@@ -722,6 +722,64 @@ test("/reload refreshes only the current thread state and preview", async () => 
   assert.match(telegram.sentMessages[0]!.text, /desktop answer/);
 });
 
+test("/reload materializes the current thread before reading history", async () => {
+  const state = testState();
+  state.chats["42"] = testChatState({
+    threadId: "thread-1",
+    model: "gpt-test",
+  });
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  let readCount = 0;
+  codex.call = async function (method: string, params?: JsonObject): Promise<JsonObject> {
+    this.calls.push({ method, params });
+    if (method === "thread/read") {
+      readCount += 1;
+      if (readCount === 1) {
+        return { thread: { id: "thread-1", status: { type: "notLoaded" } } };
+      }
+      return {
+        thread: {
+          id: "thread-1",
+          status: { type: "completed" },
+          turns: [
+            {
+              id: "turn-1",
+              status: "completed",
+              items: [
+                { type: "userMessage", content: [{ text: "desktop request" }] },
+                { type: "agentMessage", text: "desktop answer" },
+              ],
+            },
+          ],
+        },
+      };
+    }
+    if (method === "thread/resume") {
+      return {};
+    }
+    throw new Error(`unexpected codex call: ${method}`);
+  };
+  const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
+    telegram,
+    codex,
+    initialState: state,
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("/reload"));
+
+  assert.deepEqual(codex.calls.map((call) => call.method), [
+    "thread/read",
+    "thread/resume",
+    "thread/read",
+  ]);
+  assert.equal(codex.calls[1]!.params?.threadId, "thread-1");
+  assert.equal(codex.calls[1]!.params?.model, "gpt-test");
+  assert.equal(codex.calls[1]!.params?.cwd, testConfig().workspaceCwd);
+  assert.match(telegram.sentMessages[0]!.text, /Session reloaded/);
+  assert.match(telegram.sentMessages[0]!.text, /desktop answer/);
+});
+
 test("/reload rejects direct session ids", async () => {
   const state = testState();
   state.chats["42"] = testChatState({ threadId: "thread-1" });
@@ -739,6 +797,35 @@ test("/reload rejects direct session ids", async () => {
   assert.equal(telegram.sentMessages[0]!.text, "Usage: /reload");
 });
 
+test("/reload explains unavailable local thread state", async () => {
+  const state = testState();
+  state.chats["42"] = testChatState({ threadId: "thread-foreign" });
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  codex.call = async function (method: string, params?: JsonObject): Promise<JsonObject> {
+    this.calls.push({ method, params });
+    if (method === "thread/read") {
+      return { thread: { id: "thread-foreign", status: { type: "notLoaded" } } };
+    }
+    if (method === "thread/resume") {
+      throw new Error("no rollout found for thread id thread-foreign");
+    }
+    throw new Error(`unexpected codex call: ${method}`);
+  };
+  const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
+    telegram,
+    codex,
+    initialState: state,
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("/reload"));
+
+  assert.deepEqual(codex.calls.map((call) => call.method), ["thread/read", "thread/resume"]);
+  assert.match(telegram.sentMessages[0]!.text, /Current stored thread could not be loaded/);
+  assert.match(telegram.sentMessages[0]!.text, /saved thread id/);
+  assert.match(telegram.sentMessages[0]!.text, /\/resume or \/continue/);
+});
+
 test("/version reports the installed package version", async () => {
   const telegram = new FakeTelegram();
   const codex = new FakeCodex();
@@ -753,6 +840,79 @@ test("/version reports the installed package version", async () => {
   assert.equal(telegram.sentMessages.length, 1);
   assert.equal(telegram.sentMessages[0]!.parseMode, undefined);
   assert.match(telegram.sentMessages[0]!.text, /^codex-anywhere \d+\.\d+\.\d+/);
+});
+
+test("/upgrade installs latest package and restarts the service", async () => {
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  const execCalls: Array<{ file: string; args: string[]; cwd?: string }> = [];
+  const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
+    telegram,
+    codex,
+    initialState: testState(),
+    execFile: async (file, args, options) => {
+      execCalls.push({ file, args, cwd: options?.cwd });
+      return { stdout: file === "npm" ? "changed 1 package\n" : "restarted\n", stderr: "" };
+    },
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("/upgrade"));
+
+  assert.deepEqual(execCalls, [
+    {
+      file: "npm",
+      args: ["install", "-g", "codex-anywhere@latest"],
+      cwd: testConfig().workspaceCwd,
+    },
+    {
+      file: "codex-anywhere",
+      args: ["restart-service"],
+      cwd: testConfig().workspaceCwd,
+    },
+  ]);
+  assert.equal(telegram.sentMessages.length, 2);
+  assert.equal(telegram.sentMessages[0]!.parseMode, "HTML");
+  assert.match(telegram.sentMessages[0]!.text, /Upgrade started/);
+  assert.match(telegram.sentMessages[1]!.text, /Upgrade installed/);
+});
+
+test("/upgrade rejects arguments", async () => {
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  const execCalls: string[] = [];
+  const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
+    telegram,
+    codex,
+    initialState: testState(),
+    execFile: async (file) => {
+      execCalls.push(file);
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("/upgrade 0.3.3"));
+
+  assert.deepEqual(execCalls, []);
+  assert.equal(telegram.sentMessages[0]!.text, "Usage: /upgrade");
+});
+
+test("/upgrade reports install failures", async () => {
+  const telegram = new FakeTelegram();
+  const codex = new FakeCodex();
+  const bridge = new CodexAnywhereBridge(testConfig(), "/tmp/config.json", "/tmp/state.json", {
+    telegram,
+    codex,
+    initialState: testState(),
+    execFile: async () => {
+      throw new Error("npm permission denied");
+    },
+  });
+
+  await bridge.handleUpdateForTest(telegramMessageUpdate("/upgrade"));
+
+  assert.equal(telegram.sentMessages.length, 2);
+  assert.match(telegram.sentMessages[1]!.text, /Upgrade failed/);
+  assert.match(telegram.sentMessages[1]!.text, /npm permission denied/);
 });
 
 test("/resume lists only sessions for the current workspace", async () => {

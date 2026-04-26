@@ -23,6 +23,7 @@ export type BackgroundServiceCommand =
   | "install-service"
   | "start-service"
   | "stop-service"
+  | "restart-service"
   | "service-status"
   | "uninstall-service";
 
@@ -293,6 +294,16 @@ export async function runBackgroundServiceCommand(
       await stopLaunchAgent(spec, execFile);
       log(`Stopped LaunchAgent ${spec.label}`);
       return;
+    case "restart-service":
+      await assertLaunchAgentInstalled(spec);
+      if (!existingConfig) {
+        throw new Error(
+          "Codex Anywhere is not configured yet. Run `npm run connect` or `pnpm run connect` once before restarting the service.",
+        );
+      }
+      await restartLaunchAgent(spec, execFile);
+      log(`Restarted LaunchAgent ${spec.label}`);
+      return;
     case "service-status":
       await printLaunchAgentStatus(spec, execFile, log, existingConfig);
         return;
@@ -352,6 +363,16 @@ export async function runBackgroundServiceCommand(
         await stopLinuxSystemdUnit(spec, execFile);
         log(`Stopped systemd user service ${spec.serviceName}`);
         return;
+      case "restart-service":
+        await assertLinuxSystemdUnitInstalled(spec);
+        if (!existingConfig) {
+          throw new Error(
+            "Codex Anywhere is not configured yet. Run `npm run connect` or `pnpm run connect` once before restarting the service.",
+          );
+        }
+        await restartLinuxSystemdUnit(spec, execFile);
+        log(`Restarted systemd user service ${spec.serviceName}`);
+        return;
       case "service-status":
         await printLinuxSystemdStatus(spec, execFile, log, existingConfig);
         return;
@@ -400,6 +421,18 @@ async function stopLaunchAgent(
   await runLaunchctl(execFile, ["bootout", spec.domainTarget, spec.plistPath], {
     ignoreFailure: true,
   });
+}
+
+async function restartLaunchAgent(
+  spec: LaunchAgentSpec,
+  execFile: ServiceExecFile,
+): Promise<void> {
+  await runLaunchctl(execFile, ["enable", spec.serviceTarget], { ignoreFailure: true });
+  await runLaunchctl(execFile, ["bootout", spec.domainTarget, spec.plistPath], {
+    ignoreFailure: true,
+  });
+  await runLaunchctl(execFile, ["bootstrap", spec.domainTarget, spec.plistPath]);
+  await runLaunchctl(execFile, ["kickstart", "-k", spec.serviceTarget]);
 }
 
 async function uninstallLaunchAgent(
@@ -477,6 +510,15 @@ async function stopLinuxSystemdUnit(
   await runSystemctl(execFile, ["--user", "disable", "--now", spec.serviceName], {
     ignoreFailure: true,
   });
+}
+
+async function restartLinuxSystemdUnit(
+  spec: LinuxSystemdServiceSpec,
+  execFile: ServiceExecFile,
+): Promise<void> {
+  await runSystemctl(execFile, ["--user", "daemon-reload"]);
+  await runSystemctl(execFile, ["--user", "enable", spec.serviceName]);
+  await runSystemctl(execFile, ["--user", "restart", spec.serviceName]);
 }
 
 async function uninstallLinuxSystemdUnit(

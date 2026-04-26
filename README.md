@@ -40,6 +40,12 @@ Codex Anywhere is a Telegram-native client for `codex`, helping to achieve flow 
 npm install -g codex-anywhere
 ```
 
+Check the installed CLI version with:
+
+```bash
+codex-anywhere --version
+```
+
 ### 2. Create a Telegram bot
 
 Open [@BotFather](https://t.me/BotFather) in Telegram, send `/newbot`, and follow the prompts.
@@ -98,6 +104,11 @@ Your bot is ready. Try `/help` to see available commands, or just send a task to
 - send `/reload` to pull the latest context for the currently bound session
 - `/reload` never browses, switches, or selects another session
 
+**Upgrade Codex Anywhere from Telegram:**
+- send `/upgrade` to run `npm install -g codex-anywhere@latest`
+- after a successful install, Codex Anywhere restarts its background service
+- if the service was installed from a source checkout, update that checkout separately because npm upgrades only the global package
+
 **Start a new session:**
 - send `/new`, or just send a task like `fix tests`
 
@@ -125,6 +136,7 @@ Your bot is ready. Try `/help` to see available commands, or just send a task to
 ## Service Management
 
 ```bash
+codex-anywhere restart-service
 codex-anywhere service-status
 codex-anywhere uninstall-service
 ```
@@ -143,6 +155,7 @@ Telegram-native:
 | `/resume` | Browse and continue sessions in the current workspace |
 | `/continue [session-id]` | Browse all sessions globally or continue by exact session id |
 | `/reload` | Pull the latest context for the current session |
+| `/upgrade` | Upgrade the global `codex-anywhere` package to latest and restart the service |
 | `/verbose [on\|off\|status]` | Toggle detailed tool/file output cards |
 | `/omx [args]` | Run [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) CLI commands from Telegram |
 | `/computer <task>` | Run a task through the bundled Computer Use plugin |
@@ -150,7 +163,7 @@ Telegram-native:
 
 Codex slash commands supported through the bridge:
 
-`/start` `/help` `/new` `/resume` `/continue` `/reload` `/interrupt` `/cancel` `/status` `/workspace` `/addbot` `/omx` `/computer` `/model` `/fast` `/personality` `/permissions` `/sandbox` `/plan` `/collab` `/agent` `/subagents` `/review` `/rename` `/fork` `/compact` `/clear` `/diff` `/copy` `/mention` `/skills` `/mcp` `/apps` `/plugins` `/feedback` `/experimental` `/rollout` `/logout` `/quit` `/exit` `/stop`
+`/start` `/help` `/new` `/resume` `/continue` `/reload` `/upgrade` `/interrupt` `/cancel` `/status` `/workspace` `/addbot` `/omx` `/computer` `/model` `/fast` `/personality` `/permissions` `/sandbox` `/plan` `/collab` `/agent` `/subagents` `/review` `/rename` `/fork` `/compact` `/clear` `/diff` `/copy` `/mention` `/skills` `/mcp` `/apps` `/plugins` `/feedback` `/experimental` `/rollout` `/logout` `/quit` `/exit` `/stop`
 
 ## Development
 

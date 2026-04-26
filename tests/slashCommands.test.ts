@@ -25,6 +25,7 @@ test("recognized Codex slash commands include supported and unsupported names", 
   assert.equal(isRecognizedCodexSlashCommand("model"), true);
   assert.equal(isRecognizedCodexSlashCommand("plan"), true);
   assert.equal(isRecognizedCodexSlashCommand("reload"), true);
+  assert.equal(isRecognizedCodexSlashCommand("upgrade"), true);
   assert.equal(isRecognizedCodexSlashCommand("version"), true);
   assert.equal(isRecognizedCodexSlashCommand("definitely-not-a-command"), false);
 });
@@ -67,4 +68,8 @@ test("codexSlashHelpText mentions /version support", () => {
 
 test("codexSlashHelpText mentions /reload support", () => {
   assert.match(codexSlashHelpText(), /\/reload/);
+});
+
+test("codexSlashHelpText mentions /upgrade support", () => {
+  assert.match(codexSlashHelpText(), /\/upgrade/);
 });
