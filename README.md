@@ -161,7 +161,9 @@ Telegram-native:
 | `/computer <task>` | Run a task through the bundled Computer Use plugin |
 | `/esc` `/ese` | Interrupt aliases |
 
-Codex slash commands supported through the bridge:
+Supported Telegram command surface:
+
+This includes Telegram-native bridge commands plus Codex slash commands forwarded or adapted by Codex Anywhere.
 
 `/start` `/help` `/new` `/resume` `/continue` `/reload` `/upgrade` `/interrupt` `/cancel` `/status` `/workspace` `/addbot` `/omx` `/computer` `/model` `/fast` `/personality` `/permissions` `/sandbox` `/plan` `/collab` `/agent` `/subagents` `/review` `/rename` `/fork` `/compact` `/clear` `/diff` `/copy` `/mention` `/skills` `/mcp` `/apps` `/plugins` `/feedback` `/experimental` `/rollout` `/logout` `/quit` `/exit` `/stop`
 
